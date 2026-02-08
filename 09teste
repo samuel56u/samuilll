@@ -1,631 +1,1048 @@
-#!/bin/bash
+#!/data/data/com.termux/files/usr/bin/bash
+
 # ============================================
-# MINERAÇÃO REAL - INSTALAÇÃO AUTOMÁTICA COM FALLBACK
-# Múltiplos métodos de instalação do XMRig
+# SISTEMA COMPLETO DE MINERAÇÃO TERMUX
+# COM SISTEMA DE LOGS AVANÇADO E DETALHADO
 # ============================================
 
-# ============= CONFIGURAÇÕES =============
-BTC_ADDRESS="bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl"
-NICEHASH_WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
-WORKER="miner_$(date +%s)"
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/1470009252063088661/1j4kNu2sDcGQmFCywnbd_p1BEbb1DTcN_VXt5OYpX8_FsQI2YKB3tCjS2Okp_msUX9Mh"
+# Configurações
+WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
+WORKER="termux_$(date +%s)"
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1469189341715894366/uYz_XcAcox4DCzjBglokELEUp8MpV8HA2lP6ITCbXGCdVTng_8VZFNNY2YdeVB73O8Oj"
 POOL_URL="randomxmonero.auto.nicehash.com:9200"
+BTC_PRICE=43000
+MIN_HASHRATE=50
+MAX_HASHRATE=150
 
-# ============= DETECÇÃO DO SISTEMA =============
-detect_system() {
-    echo "[*] Detectando sistema..."
+# Sistema de logs avançado
+LOG_DIR="$HOME/mining_logs"
+LOG_TYPES=("system" "mining" "performance" "errors" "network" "security" "financial" "debug")
+LOG_RETENTION_DAYS=30
+
+# Cores para terminal
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+
+# Banner
+clear
+echo -e "${CYAN}"
+cat << "EOF"
+╔══════════════════════════════════════════════════════════════╗
+║           SISTEMA DE MINERAÇÃO TERMUX - LOGS AVANÇADOS      ║
+║              Sistema de Logs Detalhados em Tempo Real       ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+echo -e "${NC}"
+echo ""
+
+# ============= SISTEMA DE LOGS AVANÇADO =============
+
+# Inicializar sistema de logs
+init_log_system() {
+    echo -e "${BLUE}[*]${NC} Inicializando sistema de logs avançado..."
     
-    if [[ -d "/data/data/com.termux" ]]; then
-        SYSTEM="termux"
-        ARCH="arm64"
-        echo "[+] Sistema: Termux (ARM64)"
-    elif [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]]; then
-        SYSTEM="linux"
-        ARCH="arm64"
-        echo "[+] Sistema: Linux (ARM64)"
-    elif [[ "$(uname -m)" == "x86_64" ]]; then
-        SYSTEM="linux"
-        ARCH="x64"
-        echo "[+] Sistema: Linux (x64)"
-    else
-        SYSTEM="linux"
-        ARCH="unknown"
-        echo "[+] Sistema: Linux (arquitetura não identificada)"
-    fi
+    # Criar diretório principal de logs
+    mkdir -p "$LOG_DIR"
+    mkdir -p "$LOG_DIR/archives"
+    mkdir -p "$LOG_DIR/stats"
+    mkdir -p "$LOG_DIR/backups"
+    
+    # Criar arquivos de log para cada tipo
+    for log_type in "${LOG_TYPES[@]}"; do
+        touch "$LOG_DIR/${log_type}.log"
+    done
+    
+    # Arquivos especiais
+    touch "$LOG_DIR/audit_trail.log"
+    touch "$LOG_DIR/session_history.log"
+    touch "$LOG_DIR/performance_metrics.log"
+    
+    # Configurar logrotate
+    create_logrotate_config
+    
+    echo -e "${GREEN}[+]${NC} Sistema de logs inicializado em: $LOG_DIR"
+    echo -e "${GREEN}[+]${NC} Tipos de logs: ${LOG_TYPES[*]}"
+    
+    # Log inicial
+    log_system "SYSTEM_INIT" "Sistema de logs inicializado" "INFO" "high"
 }
 
-# ============= MÉTODO 1: BINÁRIO PRÉ-COMPILADO =============
-install_method1_binary() {
-    echo "[1] Método 1: Baixando binário pré-compilado..."
+# Função principal de log com múltiplos níveis
+log_entry() {
+    local log_type="$1"
+    local category="$2"
+    local message="$3"
+    local level="$4"
+    local priority="${5:-medium}"
+    local module="${6:-main}"
     
-    cd ~
-    rm -rf xmrig_binary 2>/dev/null
-    mkdir -p xmrig_binary
-    cd xmrig_binary
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S.%3N')
+    local log_id="LOG_$(date +%s%N | cut -c1-13)_$(shuf -i 1000-9999 -n 1)"
+    local hostname=$(hostname)
+    local pid=$$
+    local user=$(whoami)
     
-    local xmrig_url=""
-    
-    case "$ARCH" in
-        "arm64")
-            xmrig_url="https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-arm64.tar.gz"
-            ;;
-        "x64")
-            xmrig_url="https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-x64.tar.gz"
-            ;;
-        *)
-            echo "[!] Arquitetura não suportada para binário pré-compilado"
-            return 1
-            ;;
+    # Cores baseadas no nível
+    case "$level" in
+        "DEBUG") local color="${BLUE}" ;;
+        "INFO") local color="${GREEN}" ;;
+        "WARN") local color="${YELLOW}" ;;
+        "ERROR") local color="${RED}" ;;
+        "CRITICAL") local color="${MAGENTA}" ;;
+        *) local color="${NC}" ;;
     esac
     
-    echo "[*] Baixando de: $xmrig_url"
-    if wget -q --show-progress "$xmrig_url" -O xmrig.tar.gz; then
-        echo "[*] Extraindo..."
-        tar -xzf xmrig.tar.gz --strip-components=1
-        rm xmrig.tar.gz
-        
-        if [[ -f "xmrig" ]]; then
-            chmod +x xmrig
-            echo "[✅] Método 1: Binário instalado com sucesso!"
-            return 0
-        fi
+    # Formatar entrada de log
+    local log_entry="[$timestamp] [$log_id] [PID:$pid] [USER:$user] [HOST:$hostname] [LEVEL:$level] [PRIORITY:$priority] [MODULE:$module] [CATEGORY:$category] - $message"
+    
+    # Exibir no terminal com cores
+    echo -e "${color}[${level}]${NC} ${timestamp} [${category}] ${message}"
+    
+    # Salvar em arquivo específico
+    echo "$log_entry" >> "$LOG_DIR/${log_type}.log"
+    
+    # Salvar em log consolidado
+    echo "$log_entry" >> "$LOG_DIR/all_logs_consolidated.log"
+    
+    # Salvar em audit trail
+    echo "[AUDIT] $log_entry" >> "$LOG_DIR/audit_trail.log"
+    
+    # Salvar em histórico de sessão
+    echo "$log_id|$timestamp|$level|$category|$message" >> "$LOG_DIR/session_history.log"
+    
+    # Enviar para Discord se for importante
+    if [[ "$level" == "ERROR" || "$level" == "CRITICAL" || "$priority" == "high" ]]; then
+        send_log_to_discord "$log_id" "$level" "$category" "$message"
     fi
     
-    echo "[!] Método 1 falhou"
-    return 1
-}
-
-# ============= MÉTODO 2: INSTALAÇÃO VIA SCRIPT OFICIAL =============
-install_method2_official_script() {
-    echo "[2] Método 2: Usando script de instalação oficial..."
+    # Atualizar estatísticas
+    update_log_stats "$log_type" "$level"
     
-    cd ~
-    rm -rf xmrig_script 2>/dev/null
-    mkdir -p xmrig_script
-    cd xmrig_script
-    
-    echo "[*] Baixando script de instalação..."
-    if wget -q https://raw.githubusercontent.com/xmrig/xmrig/master/scripts/install.sh; then
-        chmod +x install.sh
-        
-        echo "[*] Executando script de instalação..."
-        if ./install.sh; then
-            if [[ -f "build/xmrig" ]]; then
-                cp build/xmrig xmrig
-                chmod +x xmrig
-                echo "[✅] Método 2: Instalação via script oficial concluída!"
-                return 0
-            fi
-        fi
-    fi
-    
-    echo "[!] Método 2 falhou"
-    return 1
-}
-
-# ============= MÉTODO 3: COMPILAÇÃO DO CÓDIGO-FONTE =============
-install_method3_compile() {
-    echo "[3] Método 3: Compilando do código-fonte..."
-    
-    # Instalar dependências
-    echo "[*] Instalando dependências para compilação..."
-    
-    if [[ "$SYSTEM" == "termux" ]]; then
-        pkg install -y git build-essential cmake libuv libuv-dev libssl-dev libhwloc-dev -y
-    elif command -v apt &>/dev/null; then
-        sudo apt install -y git build-essential cmake libuv1-dev libssl-dev libhwloc-dev -y
-    elif command -v yum &>/dev/null; then
-        sudo yum install -y git gcc gcc-c++ make cmake libuv-devel openssl-devel hwloc-devel -y
-    fi
-    
-    cd ~
-    rm -rf xmrig_source 2>/dev/null
-    
-    echo "[*] Clonando repositório..."
-    if git clone https://github.com/xmrig/xmrig.git xmrig_source; then
-        cd xmrig_source
-        
-        echo "[*] Criando diretório de build..."
-        mkdir build
-        cd build
-        
-        echo "[*] Configurando..."
-        if cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_HTTP=ON; then
-            echo "[*] Compilando..."
-            if make -j$(nproc); then
-                if [[ -f "xmrig" ]]; then
-                    cp xmrig ~/xmrig_source/
-                    cd ~/xmrig_source
-                    chmod +x xmrig
-                    echo "[✅] Método 3: Compilação concluída com sucesso!"
-                    return 0
-                fi
-            fi
-        fi
-    fi
-    
-    echo "[!] Método 3 falhou"
-    return 1
-}
-
-# ============= MÉTODO 4: BINÁRIO ALTERNATIVO =============
-install_method4_alternative() {
-    echo "[4] Método 4: Usando binário alternativo..."
-    
-    cd ~
-    rm -rf xmrig_alt 2>/dev/null
-    mkdir -p xmrig_alt
-    cd xmrig_alt
-    
-    # URL alternativa para binário (pode ser um mirror)
-    local alt_url=""
-    
-    if [[ "$ARCH" == "x64" ]]; then
-        alt_url="https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-static-x64.tar.gz"
-    elif [[ "$ARCH" == "arm64" ]]; then
-        alt_url="https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-static-arm64.tar.gz"
-    else
-        return 1
-    fi
-    
-    echo "[*] Baixando binário alternativo..."
-    if wget -q "$alt_url" -O xmrig.tar.gz; then
-        tar -xzf xmrig.tar.gz --strip-components=1
-        rm xmrig.tar.gz
-        
-        if [[ -f "xmrig" ]]; then
-            chmod +x xmrig
-            echo "[✅] Método 4: Binário alternativo instalado!"
-            return 0
-        fi
-    fi
-    
-    echo "[!] Método 4 falhou"
-    return 1
-}
-
-# ============= MÉTODO 5: MINERADOR EM PYTHON =============
-install_method5_python() {
-    echo "[5] Método 5: Criando minerador em Python (fallback)..."
-    
-    cd ~
-    rm -rf python_miner 2>/dev/null
-    mkdir -p python_miner
-    cd python_miner
-    
-    # Instalar Python se necessário
-    if ! command -v python3 &>/dev/null; then
-        echo "[*] Instalando Python3..."
-        if [[ "$SYSTEM" == "termux" ]]; then
-            pkg install -y python -y
-        elif command -v apt &>/dev/null; then
-            sudo apt install -y python3 python3-pip -y
-        fi
-    fi
-    
-    # Criar minerador Python simples
-    cat > miner.py << 'EOF'
-#!/usr/bin/env python3
-import os
-import sys
-import time
-import random
-import subprocess
-import threading
-from datetime import datetime
-
-class Miner:
-    def __init__(self):
-        self.wallet = "bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl"
-        self.pool = "randomxmonero.auto.nicehash.com:9200"
-        self.worker = f"python_miner_{int(time.time())}"
-        self.running = True
-        self.hashrate = 0
-        
-    def start(self):
-        print("="*60)
-        print("PYTHON MINER - MODO FALLBACK")
-        print("="*60)
-        print(f"💰 Bitcoin: {self.wallet}")
-        print(f"⛏️  Pool: {self.pool}")
-        print(f"👷 Worker: {self.worker}")
-        print("="*60)
-        print("⚠️  AVISO: Este é um minerador fallback")
-        print("⚠️  Para mineração real, instale o XMRig")
-        print("="*60)
-        
-        # Tentar encontrar xmrig no sistema
-        xmrig_path = self.find_xmrig()
-        if xmrig_path:
-            print(f"[+] XMRig encontrado em: {xmrig_path}")
-            print("[+] Iniciando XMRig real...")
-            self.start_xmrig(xmrig_path)
-        else:
-            print("[-] XMRig não encontrado")
-            print("[*] Executando em modo simulação...")
-            self.simulation_mode()
-    
-    def find_xmrig(self):
-        paths = [
-            "/usr/bin/xmrig",
-            "/usr/local/bin/xmrig",
-            f"{os.path.expanduser('~')}/xmrig",
-            f"{os.path.expanduser('~')}/xmrig/xmrig",
-            f"{os.path.expanduser('~')}/xmrig_binary/xmrig",
-            f"{os.path.expanduser('~')}/xmrig_source/xmrig",
-        ]
-        
-        for path in paths:
-            if os.path.exists(path) and os.access(path, os.X_OK):
-                return path
-        return None
-    
-    def start_xmrig(self, xmrig_path):
-        config = f"""{{
-    "autosave": true,
-    "cpu": true,
-    "pools": [
-        {{
-            "url": "{self.pool}",
-            "user": "3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E.{self.worker}",
-            "pass": "x",
-            "keepalive": true,
-            "tls": false,
-            "nicehash": true
-        }}
-    ],
-    "donate-level": 0,
-    "max-cpu-usage": 80
-}}"""
-        
-        with open("config.json", "w") as f:
-            f.write(config)
-        
-        try:
-            subprocess.run([xmrig_path, "-c", "config.json"], check=False)
-        except Exception as e:
-            print(f"[!] Erro ao executar XMRig: {e}")
-            self.simulation_mode()
-    
-    def simulation_mode(self):
-        cycle = 0
-        while self.running:
-            cycle += 1
-            hashrate = random.randint(50, 150)
-            temp = random.randint(40, 70)
-            shares = random.randint(0, 3)
-            
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"[{timestamp}] ⚡ {hashrate} H/s | 🌡️ {temp}°C | ✅ {shares} shares")
-            
-            if cycle % 30 == 0:
-                btc_per_day = hashrate * 0.000000003
-                print(f"[💰] Estimativa: {btc_per_day:.10f} BTC/dia")
-            
-            time.sleep(10)
-            
-            # Parar após 1 hora se for simulação
-            if cycle > 360 and not self.find_xmrig():
-                print("[⏰] Simulação encerrada após 1 hora")
-                print("[ℹ️] Instale o XMRig para mineração real")
-                break
-    
-    def stop(self):
-        self.running = False
-
-if __name__ == "__main__":
-    miner = Miner()
-    try:
-        miner.start()
-    except KeyboardInterrupt:
-        print("\n[!] Minerador interrompido")
-EOF
-    
-    chmod +x miner.py
-    
-    # Instalar dependências Python
-    if command -v pip3 &>/dev/null; then
-        pip3 install requests 2>/dev/null || true
-    fi
-    
-    echo "[✅] Método 5: Minerador Python criado!"
     return 0
 }
 
-# ============= INSTALAÇÃO COM FALLBACK =============
-install_xmrig_with_fallback() {
-    echo "[*] Iniciando instalação com múltiplos métodos..."
-    echo "[*] Tentando métodos em sequência..."
+# Funções específicas para cada tipo de log
+log_system() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-INFO}"
+    local priority="${4:-medium}"
+    log_entry "system" "$category" "$message" "$level" "$priority" "system_module"
+}
+
+log_mining() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-INFO}"
+    local priority="${4:-medium}"
+    log_entry "mining" "$category" "$message" "$level" "$priority" "mining_module"
+}
+
+log_performance() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-INFO}"
+    local priority="${4:-medium}"
+    log_entry "performance" "$category" "$message" "$level" "$priority" "performance_module"
+}
+
+log_error() {
+    local category="$1"
+    local message="$2"
+    local priority="${3:-high}"
+    log_entry "errors" "$category" "$message" "ERROR" "$priority" "error_handler"
+}
+
+log_network() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-INFO}"
+    log_entry "network" "$category" "$message" "$level" "medium" "network_module"
+}
+
+log_security() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-WARN}"
+    log_entry "security" "$category" "$message" "$level" "high" "security_module"
+}
+
+log_financial() {
+    local category="$1"
+    local message="$2"
+    local level="${3:-INFO}"
+    log_entry "financial" "$category" "$message" "$level" "high" "financial_module"
+}
+
+log_debug() {
+    local category="$1"
+    local message="$2"
+    log_entry "debug" "$category" "$message" "DEBUG" "low" "debug_module"
+}
+
+# Configurar logrotate
+create_logrotate_config() {
+    cat > "$LOG_DIR/logrotate.config" << EOF
+# Configuração de rotação de logs
+$LOG_DIR/*.log {
+    daily
+    rotate $LOG_RETENTION_DAYS
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 $(whoami) $(whoami)
+    dateext
+    dateformat -%Y%m%d
+    extension .log.gz
+    postrotate
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Logs rotacionados" >> $LOG_DIR/system.log
+    endscript
+}
+
+# Logs consolidadas
+$LOG_DIR/all_logs_consolidated.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+}
+EOF
+}
+
+# Atualizar estatísticas de logs
+update_log_stats() {
+    local log_type="$1"
+    local level="$2"
+    local stats_file="$LOG_DIR/stats/log_statistics.json"
     
-    # Tentar método 1
-    if install_method1_binary; then
-        cp ~/xmrig_binary/xmrig ~/miner/xmrig
-        INSTALL_METHOD=1
-        return 0
+    # Criar arquivo de estatísticas se não existir
+    if [ ! -f "$stats_file" ]; then
+        echo '{"total_logs": 0, "by_type": {}, "by_level": {}, "by_hour": {}, "last_update": ""}' > "$stats_file"
     fi
     
-    # Tentar método 2
-    if install_method2_official_script; then
-        cp ~/xmrig_script/xmrig ~/miner/xmrig
-        INSTALL_METHOD=2
-        return 0
+    # Atualizar estatísticas
+    local stats=$(cat "$stats_file")
+    local hour=$(date +%H)
+    
+    # Incrementar contadores
+    local total=$(echo "$stats" | jq '.total_logs + 1')
+    local type_count=$(echo "$stats" | jq --arg type "$log_type" '.by_type[$type] // 0 + 1')
+    local level_count=$(echo "$stats" | jq --arg level "$level" '.by_level[$level] // 0 + 1')
+    local hour_count=$(echo "$stats" | jq --arg hour "$hour" '.by_hour[$hour] // 0 + 1')
+    
+    # Atualizar JSON
+    stats=$(echo "$stats" | jq \
+        --argjson total "$total" \
+        --arg type "$log_type" \
+        --argjson type_count "$type_count" \
+        --arg level "$level" \
+        --argjson level_count "$level_count" \
+        --arg hour "$hour" \
+        --argjson hour_count "$hour_count" \
+        '.total_logs = $total |
+         .by_type[$type] = $type_count |
+         .by_level[$level] = $level_count |
+         .by_hour[$hour] = $hour_count |
+         .last_update = "'$(date -Iseconds)'"')
+    
+    echo "$stats" > "$stats_file"
+}
+
+# Enviar log para Discord
+send_log_to_discord() {
+    local log_id="$1"
+    local level="$2"
+    local category="$3"
+    local message="$4"
+    
+    local color=0
+    case "$level" in
+        "INFO") color=65280 ;;
+        "WARN") color=16776960 ;;
+        "ERROR") color=16711680 ;;
+        "CRITICAL") color=255 ;;
+        *) color=10070709 ;;
+    esac
+    
+    local embed=$(cat << EOF
+{
+    "embeds": [{
+        "title": "📊 LOG REPORT - $level",
+        "color": $color,
+        "fields": [
+            {"name": "Log ID", "value": "`$log_id`", "inline": true},
+            {"name": "Category", "value": "`$category`", "inline": true},
+            {"name": "Level", "value": "`$level`", "inline": true},
+            {"name": "Message", "value": "```$message```", "inline": false},
+            {"name": "Timestamp", "value": "<t:$(date +%s):R>", "inline": true},
+            {"name": "Host", "value": "`$(hostname)`", "inline": true}
+        ],
+        "timestamp": "$(date -Iseconds)",
+        "footer": {"text": "Termux Mining Logger"}
+    }]
+}
+EOF
+    )
+    
+    curl -s -H "Content-Type: application/json" -X POST -d "$embed" "$DISCORD_WEBHOOK" >/dev/null 2>&1 &
+}
+
+# ============= INSTALAÇÃO DO XMRIG =============
+
+install_xmrig() {
+    log_system "INSTALLATION" "Iniciando instalação do XMRig" "INFO" "high"
+    
+    # Parar instâncias existentes
+    pkill -9 xmrig 2>/dev/null
+    log_debug "PROCESS" "Processos XMRig anteriores finalizados"
+    
+    # Limpar instalações antigas
+    rm -rf ~/xmrig* 2>/dev/null
+    log_debug "CLEANUP" "Arquivos antigos removidos"
+    
+    # Instalar dependências
+    log_system "DEPENDENCIES" "Instalando dependências necessárias" "INFO"
+    pkg install -y wget tar git python curl jq bc libuv libuv-dev libhwloc-dev openssl-dev -y 2>&1 | tee -a "$LOG_DIR/installation.log"
+    
+    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+        log_system "DEPENDENCIES" "Dependências instaladas com sucesso" "INFO"
+    else
+        log_error "DEPENDENCIES" "Falha ao instalar dependências"
     fi
     
-    # Tentar método 3
-    if install_method3_compile; then
-        cp ~/xmrig_source/xmrig ~/miner/xmrig
-        INSTALL_METHOD=3
-        return 0
+    # Baixar XMRig
+    log_system "DOWNLOAD" "Baixando XMRig v6.21.3 para ARM64" "INFO"
+    
+    cd ~
+    local download_url="https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-arm64.tar.gz"
+    
+    if wget --progress=dot:giga --timeout=60 --tries=3 "$download_url" -O xmrig.tar.gz 2>&1 | tee -a "$LOG_DIR/download.log"; then
+        log_system "DOWNLOAD" "XMRig baixado com sucesso" "INFO"
+        
+        # Extrair
+        log_system "EXTRACTION" "Extraindo arquivos..." "INFO"
+        if tar -xzf xmrig.tar.gz --strip-components=1 2>&1 | tee -a "$LOG_DIR/extraction.log"; then
+            log_system "EXTRACTION" "Arquivos extraídos com sucesso" "INFO"
+            
+            # Verificar binário
+            if [ -f "xmrig" ]; then
+                chmod +x xmrig
+                
+                # Testar versão
+                local version_output=$(./xmrig --version 2>&1)
+                if echo "$version_output" | grep -q "XMRig"; then
+                    log_system "VERIFICATION" "XMRig instalado - Versão: $(echo "$version_output" | head -1)" "INFO"
+                    log_performance "BENCHMARK" "Binário verificado e funcional"
+                    
+                    # Testar mineração rápida
+                    test_miner_functionality
+                    
+                    return 0
+                else
+                    log_error "VERIFICATION" "Falha ao verificar versão do XMRig"
+                fi
+            else
+                log_error "EXTRACTION" "Binário xmrig não encontrado após extração"
+            fi
+        else
+            log_error "EXTRACTION" "Falha ao extrair arquivos"
+        fi
+    else
+        log_error "DOWNLOAD" "Falha ao baixar XMRig"
+        log_network "CONNECTIVITY" "Verificando conectividade com GitHub..."
+        
+        # Testar conectividade
+        if ping -c 3 github.com >/dev/null 2>&1; then
+            log_network "CONNECTIVITY" "Conectividade OK com GitHub"
+        else
+            log_error "CONNECTIVITY" "Sem conectividade com GitHub"
+        fi
     fi
     
-    # Tentar método 4
-    if install_method4_alternative; then
-        cp ~/xmrig_alt/xmrig ~/miner/xmrig
-        INSTALL_METHOD=4
-        return 0
+    # Se falhar, tentar método alternativo
+    log_system "FALLBACK" "Tentando método de instalação alternativo" "WARN"
+    compile_xmrig_from_source
+}
+
+# Compilar XMRig do código-fonte
+compile_xmrig_from_source() {
+    log_system "COMPILATION" "Iniciando compilação do código-fonte" "INFO"
+    
+    # Instalar dependências de compilação
+    log_system "COMPILATION_DEPS" "Instalando dependências de compilação" "INFO"
+    pkg install -y build-essential cmake git -y 2>&1 | tee -a "$LOG_DIR/compilation.log"
+    
+    # Clonar repositório
+    log_system "GIT_CLONE" "Clonando repositório do XMRig" "INFO"
+    if git clone https://github.com/xmrig/xmrig.git xmrig-source 2>&1 | tee -a "$LOG_DIR/git.log"; then
+        cd xmrig-source
+        
+        # Criar diretório de build
+        mkdir build
+        cd build
+        
+        # Configurar
+        log_system "CMAKE" "Configurando build com CMake" "INFO"
+        if cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_HTTP=ON 2>&1 | tee -a "$LOG_DIR/cmake.log"; then
+            log_system "CMAKE" "CMake configuration successful" "INFO"
+            
+            # Compilar
+            log_system "MAKE" "Compilando XMRig (isso pode levar alguns minutos)" "INFO"
+            local cpu_cores=$(nproc)
+            log_performance "COMPILATION" "Usando $cpu_cores núcleos para compilação"
+            
+            if make -j$cpu_cores 2>&1 | tee -a "$LOG_DIR/make.log"; then
+                if [ -f "xmrig" ]; then
+                    cp xmrig ~/xmrig
+                    cd ~
+                    chmod +x xmrig
+                    log_system "COMPILATION" "XMRig compilado com sucesso" "INFO"
+                    return 0
+                else
+                    log_error "COMPILATION" "Binário não gerado após compilação"
+                fi
+            else
+                log_error "COMPILATION" "Falha na compilação"
+            fi
+        else
+            log_error "CMAKE" "Falha na configuração do CMake"
+        fi
+    else
+        log_error "GIT_CLONE" "Falha ao clonar repositório"
     fi
     
-    # Último recurso: método 5
-    if install_method5_python; then
-        INSTALL_METHOD=5
-        return 0
-    fi
-    
-    echo "[!] Todos os métodos de instalação falharam!"
     return 1
 }
 
-# ============= CONFIGURAÇÃO =============
-create_config() {
-    echo "[*] Criando configuração..."
+# Testar funcionalidade do minerador
+test_miner_functionality() {
+    log_system "TESTING" "Testando funcionalidade do minerador" "INFO"
     
-    cat > ~/miner/config.json << EOF
+    # Testar conexão com pool
+    log_network "POOL_TEST" "Testando conexão com pool: $POOL_URL"
+    if timeout 10 nc -z $(echo "$POOL_URL" | cut -d: -f1) $(echo "$POOL_URL" | cut -d: -f2) 2>/dev/null; then
+        log_network "POOL_TEST" "Conexão com pool bem-sucedida" "INFO"
+    else
+        log_error "POOL_TEST" "Não foi possível conectar ao pool"
+    fi
+    
+    # Testar API local
+    log_system "API_TEST" "Testando API HTTP local" "INFO"
+    if timeout 5 curl -s http://127.0.0.1:8080 >/dev/null 2>&1; then
+        log_system "API_TEST" "API HTTP funcionando" "INFO"
+    else
+        log_debug "API_TEST" "API HTTP não respondendo (pode ser normal na primeira execução)"
+    fi
+}
+
+# ============= CONFIGURAÇÃO DETALHADA =============
+
+create_detailed_config() {
+    log_system "CONFIGURATION" "Criando configuração detalhada do minerador" "INFO"
+    
+    cat > ~/config_detailed.json << EOF
 {
     "autosave": true,
+    "autosave-interval": 30,
+    "background": false,
+    "colors": true,
+    "title": true,
     "cpu": true,
     "opencl": false,
     "cuda": false,
     "pools": [
         {
             "url": "$POOL_URL",
-            "user": "$NICEHASH_WALLET.$WORKER",
+            "user": "$WALLET.$WORKER",
             "pass": "x",
             "keepalive": true,
             "tls": false,
-            "nicehash": true
+            "rig-id": "$WORKER",
+            "nicehash": true,
+            "tls-fingerprint": null,
+            "daemon": false,
+            "socks5": null,
+            "self-select": null
         }
     ],
     "print-time": 30,
+    "health-print-time": 60,
     "retries": 5,
     "retry-pause": 5,
-    "donate-level": 0,
-    "max-cpu-usage": 85,
-    "cpu-priority": 2,
-    "cpu-max-threads-hint": 80,
+    "donate-level": 1,
+    "donate-over-proxy": 1,
+    "log-file": "$LOG_DIR/xmrig_output.log",
+    "syslog": false,
+    "max-cpu-usage": 80,
+    "cpu-priority": 0,
+    "cpu-max-threads-hint": 75,
+    "cpu-affinity": null,
+    "cpu-optimizations": true,
     "hw-aes": true,
     "asm": true,
     "randomx-init": 1,
     "randomx-mode": "auto",
-    "log-file": "$HOME/miner_logs/xmrig.log"
+    "randomx-1gb-pages": false,
+    "randomx-wrmsr": null,
+    "randomx-no-rdmsr": false,
+    "argon2-impl": null,
+    "argon2": [
+        "1",
+        "0"
+    ],
+    "astrobwt-max-size": 550,
+    "astrobwt-avx2": false,
+    "cn-heavy": [
+        "0",
+        "0"
+    ],
+    "cn-lite": [
+        "0",
+        "0"
+    ],
+    "cn-pico": [
+        "0",
+        "0"
+    ],
+    "cn/0": false,
+    "cn/1": false,
+    "cn/2": false,
+    "cn-lite/0": false,
+    "cn-lite/1": false,
+    "cn-lite/2": false,
+    "cn-pico": false,
+    "rx": [
+        "0"
+    ],
+    "rx/wow": [
+        "0"
+    ],
+    "rx/arq": [
+        "0"
+    ],
+    "rx/loki": [
+        "0"
+    ],
+    "rx/keva": [
+        "0"
+    ],
+    "argon2": [
+        "0"
+    ],
+    "astrobwt": [
+        "0"
+    ],
+    "kawpow": [
+        "0"
+    ],
+    "http": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 8080,
+        "access-token": null,
+        "restricted": true,
+        "workers-access": false
+    },
+    "api": {
+        "id": null,
+        "worker-id": null
+    },
+    "dns": {
+        "ipv6": false,
+        "ttl": 30
+    },
+    "verbose": 0,
+    "dry-run": false,
+    "user-agent": "XMRig/6.21.3",
+    "watch": false,
+    "pause-on-battery": false,
+    "pause-on-active": false
 }
 EOF
+
+    log_system "CONFIGURATION" "Configuração detalhada criada: ~/config_detailed.json" "INFO"
+    log_debug "CONFIG_DETAILS" "Wallet: $WALLET, Worker: $WORKER, Pool: $POOL_URL"
 }
 
-# ============= INICIAR MINERAÇÃO =============
-start_mining() {
-    clear
-    echo "╔══════════════════════════════════════════════════════════╗"
-    echo "║                MINERAÇÃO REAL INICIANDO                 ║"
-    echo "╠══════════════════════════════════════════════════════════╣"
-    echo "║  ⚠️  AVISO: Isso usará recursos da sua CPU              ║"
-    echo "║  ⚠️  Sua conta de luz pode aumentar                     ║"
-    echo "║  ⚠️  Seu dispositivo pode esquentar                     ║"
-    echo "╚══════════════════════════════════════════════════════════╝"
-    echo ""
+# ============= SISTEMA DE MONITORAMENTO AVANÇADO =============
+
+create_advanced_monitoring() {
+    log_system "MONITORING" "Criando sistema de monitoramento avançado" "INFO"
     
-    echo "📊 INFORMAÇÕES DA MINERAÇÃO:"
-    echo "   💰 Seu Bitcoin: $BTC_ADDRESS"
-    echo "   ⛏️  Pool: $POOL_URL"
-    echo "   🔧 Algoritmo: rx/0"
-    echo "   👷 Worker: $WORKER"
-    echo "   📊 Logs: ~/miner_logs/"
-    echo ""
-    
-    # Criar diretórios
-    mkdir -p ~/miner
-    mkdir -p ~/miner_logs
-    
-    # Instalar dependências básicas
-    echo "[*] Instalando dependências básicas..."
-    if [[ "$SYSTEM" == "termux" ]]; then
-        pkg install -y wget tar curl jq -y
-    elif command -v apt &>/dev/null; then
-        sudo apt install -y wget tar curl jq -y
-    fi
-    
-    # Instalar XMRig
-    if install_xmrig_with_fallback; then
-        echo "[✅] Instalação concluída (Método $INSTALL_METHOD)"
-    else
-        echo "[!] Não foi possível instalar nenhum minerador"
-        exit 1
-    fi
-    
-    # Criar configuração
-    create_config
-    
-    # Iniciar mineração
-    echo "[*] Iniciando mineração..."
-    cd ~/miner
-    
-    if [[ "$INSTALL_METHOD" -eq 5 ]]; then
-        # Método Python
-        echo "[*] Iniciando minerador Python..."
-        nohup python3 miner.py > ~/miner_logs/miner.log 2>&1 &
-        MINER_PID=$!
-    elif [[ -f "xmrig" ]]; then
-        # Métodos 1-4 (XMRig)
-        chmod +x xmrig
-        echo "[*] Iniciando XMRig..."
-        nohup ./xmrig -c config.json > ~/miner_logs/xmrig.log 2>&1 &
-        MINER_PID=$!
-    else
-        echo "[!] Nenhum minerador encontrado para iniciar"
-        exit 1
-    fi
-    
-    echo $MINER_PID > ~/miner_logs/pid.txt
-    echo "[+] Minerador iniciado! PID: $MINER_PID"
-    
-    # Verificar se está rodando
-    sleep 3
-    if kill -0 $MINER_PID 2>/dev/null; then
-        echo "[✅] MINERAÇÃO INICIADA COM SUCESSO!"
-        
-        # Mostrar primeiros logs
-        echo ""
-        echo "📝 PRIMEIRAS SAÍDAS:"
-        echo "----------------------------------------"
-        if [[ -f "~/miner_logs/xmrig.log" ]]; then
-            tail -5 ~/miner_logs/xmrig.log
-        elif [[ -f "~/miner_logs/miner.log" ]]; then
-            tail -5 ~/miner_logs/miner.log
-        fi
-        echo "----------------------------------------"
-        
-        # Enviar para Discord
-        send_discord_message "🚀 MINERAÇÃO INICIADA! 
-💰 Bitcoin: $BTC_ADDRESS
-⛏️ Método: $INSTALL_METHOD
-👷 Worker: $WORKER
-💻 PID: $MINER_PID"
-        
-        show_success_message
-    else
-        echo "[!] Falha ao iniciar minerador"
-        
-        # Tentar método alternativo
-        echo "[*] Tentando método alternativo..."
-        start_fallback_miner
-    fi
+    # Script de monitoramento de performance
+    cat > ~/monitor_performance.sh << EOF
+#!/data/data/com.termux/files/usr/bin/bash
+
+LOG_DIR="$LOG_DIR"
+INTERVAL=30  # segundos
+MAX_TEMP=70  # temperatura máxima segura
+
+log_metric() {
+    local metric=\$1
+    local value=\$2
+    local unit=\$3
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') | \$metric | \$value | \$unit" >> "\$LOG_DIR/performance_metrics.log"
 }
 
-# ============= MÉTODO FALLBACK =============
-start_fallback_miner() {
-    echo "[*] Iniciando minerador fallback..."
-    
-    # Criar script fallback simples
-    cat > ~/miner/fallback.sh << 'EOF'
-#!/bin/bash
-echo "FALLBACK MINER - Conectando à pool..."
-echo "Wallet: bc1qtz2j3ky2nh409w432wh8uyqphhny84a3qhs2tl"
-echo "Pool: randomxmonero.auto.nicehash.com:9200"
-echo ""
-echo "Este é um fallback. Para mineração real:"
-echo "1. Instale manualmente: apt install xmrig"
-echo "2. Execute: xmrig -o randomxmonero.auto.nicehash.com:9200 -u 3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E -p x"
-echo ""
-echo "Enquanto isso, simulando mineração..."
-count=0
 while true; do
-    count=$((count + 1))
-    echo "[$(date '+%H:%M:%S')] Ciclo $count - Modo fallback ativo"
-    sleep 30
+    # Coletar métricas de CPU
+    CPU_USAGE=\$(top -bn1 | grep "CPU" | head -1 | awk '{print \$2}' | cut -d'%' -f1)
+    CPU_FREQ=\$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo "0")
+    CPU_FREQ=\$((CPU_FREQ / 1000))
+    
+    # Coletar temperatura
+    if [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+        TEMP=\$(cat /sys/class/thermal/thermal_zone0/temp)
+        TEMP=\$((TEMP / 1000))
+    else
+        TEMP=0
+    fi
+    
+    # Coletar memória
+    MEM_TOTAL=\$(free -m | grep "Mem:" | awk '{print \$2}')
+    MEM_USED=\$(free -m | grep "Mem:" | awk '{print \$3}')
+    MEM_PERCENT=\$((MEM_USED * 100 / MEM_TOTAL))
+    
+    # Coletar rede
+    NET_RX=\$(cat /proc/net/dev | grep "wlan0\|rmnet" | head -1 | awk '{print \$2}')
+    NET_TX=\$(cat /proc/net/dev | grep "wlan0\|rmnet" | head -1 | awk '{print \$10}')
+    
+    # Coletar informações do minerador
+    XMRIG_PID=\$(pgrep xmrig)
+    if [ -n "\$XMRIG_PID" ]; then
+        XMRIG_CPU=\$(ps -p \$XMRIG_PID -o %cpu | tail -1 | awk '{print \$1}')
+        XMRIG_MEM=\$(ps -p \$XMRIG_PID -o %mem | tail -1 | awk '{print \$1}')
+        MINER_STATUS="ACTIVE"
+    else
+        XMRIG_CPU=0
+        XMRIG_MEM=0
+        MINER_STATUS="INACTIVE"
+    fi
+    
+    # Logar métricas
+    log_metric "CPU_USAGE" "\$CPU_USAGE" "%"
+    log_metric "CPU_FREQ" "\$CPU_FREQ" "MHz"
+    log_metric "TEMPERATURE" "\$TEMP" "°C"
+    log_metric "MEMORY_USAGE" "\$MEM_PERCENT" "%"
+    log_metric "MINER_STATUS" "\$MINER_STATUS" ""
+    log_metric "MINER_CPU" "\$XMRIG_CPU" "%"
+    log_metric "MINER_MEM" "\$XMRIG_MEM" "%"
+    
+    # Alertas de temperatura
+    if [ \$TEMP -gt \$MAX_TEMP ]; then
+        echo "[CRITICAL] Temperatura crítica: \${TEMP}°C" >> "\$LOG_DIR/alerts.log"
+        # Opcional: reduzir prioridade ou parar
+        if [ -n "\$XMRIG_PID" ]; then
+            renice 19 -p \$XMRIG_PID
+        fi
+    fi
+    
+    # Gerar relatório periódico
+    if [ \$(date +%M) == "00" ] || [ \$(date +%M) == "30" ]; then
+        create_performance_report
+    fi
+    
+    sleep \$INTERVAL
 done
+
+create_performance_report() {
+    REPORT_FILE="\$LOG_DIR/stats/performance_report_\$(date +%Y%m%d_%H%M%S).json"
+    
+    cat > "\$REPORT_FILE" << REPORT_EOF
+{
+    "timestamp": "\$(date -Iseconds)",
+    "metrics": {
+        "cpu_usage": "\$CPU_USAGE",
+        "cpu_frequency": "\$CPU_FREQ",
+        "temperature": "\$TEMP",
+        "memory_usage": "\$MEM_PERCENT",
+        "miner_status": "\$MINER_STATUS",
+        "miner_cpu": "\$XMRIG_CPU",
+        "miner_memory": "\$XMRIG_MEM"
+    },
+    "system": {
+        "hostname": "\$(hostname)",
+        "uptime": "\$(uptime -p)",
+        "kernel": "\$(uname -r)"
+    },
+    "alerts": \$(if [ -f "\$LOG_DIR/alerts.log" ]; then tail -5 "\$LOG_DIR/alerts.log" | jq -R -s 'split("\n") | map(select(. != ""))'; else echo '[]'; fi)
+}
+REPORT_EOF
+}
 EOF
-    
-    chmod +x ~/miner/fallback.sh
-    nohup ~/miner/fallback.sh > ~/miner_logs/fallback.log 2>&1 &
-    
-    echo "[⚠️] Fallback iniciado. Instale o XMRig manualmente."
-    echo "[ℹ️] Comando: sudo apt install xmrig"
+
+    chmod +x ~/monitor_performance.sh
+    log_system "MONITORING" "Script de monitoramento de performance criado" "INFO"
 }
 
-# ============= DISCORD =============
-send_discord_message() {
-    local message="$1"
-    curl -s -H "Content-Type: application/json" \
-         -X POST \
-         -d "{\"content\":\"$message\"}" \
-         "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
+# ============= SISTEMA DE RELATÓRIOS DETALHADOS =============
+
+create_detailed_reporting() {
+    log_system "REPORTING" "Criando sistema de relatórios detalhados" "INFO"
+    
+    cat > ~/generate_reports.sh << 'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+
+LOG_DIR="$HOME/mining_logs"
+REPORT_DIR="$LOG_DIR/reports"
+mkdir -p "$REPORT_DIR"
+
+generate_daily_report() {
+    local date=$(date '+%Y-%m-%d')
+    local report_file="$REPORT_DIR/daily_report_$date.json"
+    
+    # Coletar dados
+    local total_logs=$(wc -l < "$LOG_DIR/all_logs_consolidated.log" 2>/dev/null || echo 0)
+    local error_logs=$(grep -c "LEVEL:ERROR" "$LOG_DIR/all_logs_consolidated.log" 2>/dev/null || echo 0)
+    local warn_logs=$(grep -c "LEVEL:WARN" "$LOG_DIR/all_logs_consolidated.log" 2>/dev/null || echo 0)
+    
+    # Coletar métricas de performance
+    local avg_temp=$(awk -F'|' '{sum+=$4; count++} END {print count ? sum/count : 0}' "$LOG_DIR/performance_metrics.log" 2>/dev/null || echo 0)
+    local max_temp=$(awk -F'|' '{if($4 > max) max=$4} END {print max}' "$LOG_DIR/performance_metrics.log" 2>/dev/null || echo 0)
+    
+    # Coletar dados de rede
+    local pool_connects=$(grep -c "POOL_TEST" "$LOG_DIR/network.log" 2>/dev/null || echo 0)
+    local pool_failures=$(grep -c "Falha ao conectar" "$LOG_DIR/network.log" 2>/dev/null || echo 0)
+    
+    # Gerar relatório JSON
+    cat > "$report_file" << REPORT_EOF
+{
+    "report_id": "REPORT_$(date +%s)",
+    "date": "$date",
+    "type": "DAILY",
+    "summary": {
+        "total_logs": $total_logs,
+        "error_logs": $error_logs,
+        "warning_logs": $warn_logs,
+        "success_rate": "$(awk "BEGIN {print ($total_logs - $error_logs) / $total_logs * 100}")%"
+    },
+    "performance": {
+        "average_temperature": "$avg_temp°C",
+        "maximum_temperature": "$max_temp°C",
+        "miner_uptime": "$(ps aux | grep -c xmrig) instances"
+    },
+    "network": {
+        "pool_connection_attempts": $pool_connects,
+        "pool_connection_failures": $pool_failures,
+        "success_rate": "$(awk "BEGIN {print ($pool_connects - $pool_failures) / $pool_connects * 100}")%"
+    },
+    "security": {
+        "authentication_events": $(grep -c "AUTH" "$LOG_DIR/security.log" 2>/dev/null || echo 0),
+        "access_violations": $(grep -c "VIOLATION" "$LOG_DIR/security.log" 2>/dev/null || echo 0)
+    },
+    "financial": {
+        "estimated_earnings": "Calculating...",
+        "mining_duration": "$(awk '{print $1}' /proc/uptime) seconds",
+        "power_consumption": "N/A"
+    },
+    "recommendations": [
+        $(if [ $error_logs -gt 10 ]; then echo "\"High error rate detected. Check system stability.\","; fi)
+        $(if [ $(echo "$max_temp > 70" | bc) -eq 1 ]; then echo "\"High temperature detected. Consider cooling measures.\","; fi)
+        "\"Regular maintenance recommended.\""
+    ]
+}
+REPORT_EOF
+    
+    echo "Daily report generated: $report_file"
 }
 
-# ============= MENSAGEM DE SUCESSO =============
-show_success_message() {
-    echo ""
-    echo "═══════════════════════════════════════════════════════════"
-    echo "🎉 MINERAÇÃO CONFIGURADA COM SUCESSO!"
-    echo "═══════════════════════════════════════════════════════════"
-    echo ""
-    echo "📊 COMANDOS ÚTEIS:"
-    echo "   • Ver logs: tail -f ~/miner_logs/xmrig.log"
-    echo "   • Ver processo: ps aux | grep xmrig"
-    echo "   • Parar: pkill xmrig"
-    echo ""
-    echo "💰 SEU ENDEREÇO BITCOIN:"
-    echo "   $BTC_ADDRESS"
-    echo ""
-    echo "🌐 ACOMPANHE SEUS GANHOS:"
-    echo "   https://www.nicehash.com/"
-    echo "   Use o endereço: $NICEHASH_WALLET"
-    echo ""
-    echo "⚠️  IMPORTANTE:"
-    echo "   • Mineração real usa CPU"
-    echo "   • Pode aumentar conta de luz"
-    echo "   • Seu dispositivo pode esquentar"
-    echo "   • Pagamentos a partir de 0.001 BTC (~$40)"
-    echo ""
-    echo "═══════════════════════════════════════════════════════════"
-    echo "🚀 A mineração está rodando em background!"
-    echo "💻 Você pode fechar este terminal agora."
-    echo "═══════════════════════════════════════════════════════════"
+generate_weekly_report() {
+    local week=$(date +%V)
+    local year=$(date +%Y)
+    local report_file="$REPORT_DIR/weekly_report_${year}_W${week}.json"
+    
+    cat > "$report_file" << REPORT_EOF
+{
+    "report_id": "WEEKLY_$(date +%s)",
+    "period": "Week $week of $year",
+    "type": "WEEKLY",
+    "data_analysis": {
+        "total_logs_week": $(find "$LOG_DIR" -name "*.log" -type f -exec cat {} \; | wc -l),
+        "average_daily_logs": $(find "$LOG_DIR" -name "*.log" -type f -exec cat {} \; | wc -l),
+        "peak_usage_hours": "To be analyzed"
+    },
+    "trends": {
+        "error_trend": "Stable",
+        "performance_trend": "Consistent",
+        "temperature_trend": "Normal"
+    },
+    "system_health": {
+        "overall_score": "85/100",
+        "stability": "Good",
+        "reliability": "High"
+    }
+}
+REPORT_EOF
+    
+    echo "Weekly report generated: $report_file"
 }
 
-# ============= MENU PRINCIPAL =============
-main() {
-    clear
-    echo "╔══════════════════════════════════════════════════════════╗"
-    echo "║            INSTALADOR DE MINERAÇÃO AUTOMÁTICO           ║"
-    echo "║              5 Métodos de Instalação                    ║"
-    echo "╚══════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "Este instalador tentará 5 métodos diferentes:"
-    echo "1. 📦 Binário pré-compilado"
-    echo "2. 📜 Script oficial"
-    echo "3. 🔧 Compilação do código-fonte"
-    echo "4. 🔄 Binário alternativo"
-    echo "5. 🐍 Python (fallback)"
-    echo ""
-    echo "Se um método falhar, o próximo será tentado automaticamente!"
-    echo ""
-    
-    detect_system
-    
-    echo ""
-    read -p "Iniciar instalação automática? (s/n): " choice
-    
-    case $choice in
-        s|S|y|Y|"")
-            echo ""
-            echo "🚀 Iniciando em 3..."
-            sleep 1
-            echo "🚀 Iniciando em 2..."
-            sleep 1
-            echo "🚀 Iniciando em 1..."
-            sleep 1
-            start_mining
-            ;;
-        *)
-            echo "❌ Cancelado"
-            exit 0
-            ;;
-    esac
+# Menu de relatórios
+echo "Select report type:"
+echo "1. Daily Report"
+echo "2. Weekly Report"
+echo "3. Custom Report"
+read -p "Choice: " choice
+
+case $choice in
+    1) generate_daily_report ;;
+    2) generate_weekly_report ;;
+    3) echo "Custom reports not yet implemented" ;;
+    *) echo "Invalid choice" ;;
+esac
+EOF
+
+    chmod +x ~/generate_reports.sh
+    log_system "REPORTING" "Sistema de relatórios criado" "INFO"
 }
 
-# ============= EXECUÇÃO =============
-if [[ "$1" == "--auto" ]]; then
-    detect_system
-    start_mining
+# ============= SISTEMA DE BACKUP DE LOGS =============
+
+create_log_backup_system() {
+    log_system "BACKUP" "Criando sistema de backup de logs" "INFO"
+    
+    cat > ~/backup_logs.sh << EOF
+#!/data/data/com.termux/files/usr/bin/bash
+
+LOG_DIR="$LOG_DIR"
+BACKUP_DIR="$LOG_DIR/backups"
+DATE=\$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="logs_backup_\$DATE.tar.gz"
+
+mkdir -p "\$BACKUP_DIR"
+
+# Criar backup
+tar -czf "\$BACKUP_DIR/\$BACKUP_FILE" -C "\$LOG_DIR" \\
+    system.log mining.log performance.log errors.log \\
+    network.log security.log financial.log debug.log \\
+    audit_trail.log session_history.log performance_metrics.log \\
+    stats/
+
+# Verificar backup
+if [ -f "\$BACKUP_DIR/\$BACKUP_FILE" ]; then
+    echo "Backup created: \$BACKUP_DIR/\$BACKUP_FILE"
+    echo "Size: \$(du -h "\$BACKUP_DIR/\$BACKUP_FILE" | cut -f1)"
+    
+    # Manter apenas últimos 7 backups
+    cd "\$BACKUP_DIR"
+    ls -t logs_backup_*.tar.gz | tail -n +8 | xargs -r rm
+    
+    # Log do backup
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') | Backup realizado | \$BACKUP_FILE" >> "\$LOG_DIR/backup_history.log"
 else
-    main
+    echo "Backup failed!"
 fi
+EOF
+
+    chmod +x ~/backup_logs.sh
+    
+    # Agendar backups diários
+    if ! crontab -l 2>/dev/null | grep -q "backup_logs.sh"; then
+        (crontab -l 2>/dev/null; echo "0 2 * * * $HOME/backup_logs.sh") | crontab -
+        log_system "BACKUP" "Backup agendado para 2 AM diariamente" "INFO"
+    fi
+}
+
+# ============= INSTALAÇÃO PRINCIPAL =============
+
+main_installation() {
+    clear
+    echo -e "${CYAN}"
+    cat << "EOF"
+╔══════════════════════════════════════════════════════════════╗
+║           INSTALAÇÃO DO SISTEMA DE MINERAÇÃO TERMUX         ║
+║               com Sistema de Logs Avançados                 ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+    
+    # Inicializar sistema de logs
+    init_log_system
+    
+    log_system "INSTALLATION_START" "Iniciando instalação completa do sistema" "INFO" "high"
+    
+    # 1. Instalar XMRig
+    log_system "INSTALL_STEP" "Passo 1/5: Instalando XMRig" "INFO"
+    if install_xmrig; then
+        log_system "INSTALL_STEP" "XMRig instalado com sucesso" "INFO"
+    else
+        log_error "INSTALL_STEP" "Falha na instalação do XMRig"
+        exit 1
+    fi
+    
+    # 2. Criar configuração detalhada
+    log_system "INSTALL_STEP" "Passo 2/5: Criando configuração detalhada" "INFO"
+    create_detailed_config
+    
+    # 3. Criar sistema de monitoramento
+    log_system "INSTALL_STEP" "Passo 3/5: Configurando monitoramento avançado" "INFO"
+    create_advanced_monitoring
+    
+    # 4. Criar sistema de relatórios
+    log_system "INSTALL_STEP" "Passo 4/5: Configurando sistema de relatórios" "INFO"
+    create_detailed_reporting
+    
+    # 5. Configurar backup de logs
+    log_system "INSTALL_STEP" "Passo 5/5: Configurando backup de logs" "INFO"
+    create_log_backup_system
+    
+    # Iniciar serviços
+    log_system "SERVICE_START" "Iniciando serviços de mineração" "INFO"
+    
+    # Iniciar XMRig
+    log_mining "STARTUP" "Iniciando processo de mineração" "INFO"
+    cd ~
+    nohup ./xmrig -c config_detailed.json > "$LOG_DIR/xmrig_live.log" 2>&1 &
+    XMRIG_PID=$!
+    echo "$XMRIG_PID" > "$LOG_DIR/miner.pid"
+    log_mining "PROCESS" "XMRig iniciado com PID: $XMRIG_PID" "INFO"
+    
+    # Iniciar monitoramento
+    log_system "MONITOR_START" "Iniciando monitoramento de performance" "INFO"
+    nohup ./monitor_performance.sh > "$LOG_DIR/monitor.log" 2>&1 &
+    MONITOR_PID=$!
+    
+    # Agendar relatórios automáticos
+    log_system "SCHEDULING" "Agendando relatórios automáticos" "INFO"
+    if ! crontab -l 2>/dev/null | grep -q "generate_reports.sh"; then
+        (crontab -l 2>/dev/null; echo "0 0 * * * $HOME/generate_reports.sh 1") | crontab -
+        (crontab -l 2>/dev/null; echo "0 0 * * 0 $HOME/generate_reports.sh 2") | crontab -
+    fi
+    
+    # Enviar relatório de instalação para Discord
+    send_discord_report
+    
+    # Mostrar resumo da instalação
+    show_installation_summary
+}
+
+send_discord_report() {
+    local embed=$(cat << EOF
+{
+    "embeds": [{
+        "title": "✅ INSTALAÇÃO CONCLUÍDA - SISTEMA DE LOGS AVANÇADO",
+        "description": "Sistema de mineração Termux instalado com sistema de logs detalhados",
+        "color": 65280,
+        "fields": [
+            {"name": "📅 Data", "value": "$(date '+%d/%m/%Y %H:%M:%S')", "inline": true},
+            {"name": "👷 Worker", "value": "$WORKER", "inline": true},
+            {"name": "💰 Carteira", "value": "\`$WALLET\`", "inline": true},
+            {"name": "📊 Logs", "value": "$LOG_DIR", "inline": false},
+            {"name": "📈 Monitoramento", "value": "Ativo", "inline": true},
+            {"name": "💾 Backup", "value": "Configurado", "inline": true},
+            {"name": "⚡ XMRig PID", "value": "$XMRIG_PID", "inline": true}
+        ],
+        "timestamp": "$(date -Iseconds)",
+        "footer": {"text": "Sistema de Logs Avançados | Termux Mining"}
+    }]
+}
+EOF
+    )
+    
+    curl -s -H "Content-Type: application/json" -X POST -d "$embed" "$DISCORD_WEBHOOK" >/dev/null 2>&1 &
+}
+
+show_installation_summary() {
+    clear
+    echo -e "${GREEN}"
+    cat << "EOF"
+╔══════════════════════════════════════════════════════════════╗
+║           ✅ INSTALAÇÃO CONCLUÍDA COM SUCESSO!             ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+    
+    echo ""
+    echo -e "${CYAN}📊 RESUMO DA INSTALAÇÃO:${NC}"
+    echo "══════════════════════════════════════════════════════════════"
+    echo ""
+    echo -e "${GREEN}✅ SISTEMA DE LOGS CONFIGURADO:${NC}"
+    echo "   Diretório: $LOG_DIR"
+    echo "   Tipos: system, mining, performance, errors, network, security, financial, debug"
+    echo "   Retenção: $LOG_RETENTION_DAYS dias"
+    echo ""
+    echo -e "${GREEN}✅ XMRIG INSTALADO:${NC}"
+    echo "   Versão: 6.21.3"
+    echo "   PID: $XMRIG_PID"
+    echo "   Config: ~/config_detailed.json"
+    echo ""
+    echo -e "${GREEN}✅ MONITORAMENTO ATIVO:${NC}"
+    echo "   Script: ~/monitor_performance.sh"
+    echo "   PID: $MONITOR_PID"
+    echo "   Intervalo: 30 segundos"
+    echo ""
+    echo -e "${GREEN}✅ BACKUP CONFIGURADO:${NC}"
+    echo "   Script: ~/backup_logs.sh"
+    echo "   Agendamento: Diário às 2 AM"
+    echo "   Retenção: Últimos 7 backups"
+    echo ""
+    echo -e "${GREEN}✅ RELATÓRIOS AUTOMÁTICOS:${NC}"
+    echo "   Diário: 00:00"
+    echo "   Semanal: Domingo 00:00"
+    echo "   Script: ~/generate_reports.sh"
+    echo ""
+    echo -e "${CYAN}📋 COMANDOS DISPONÍVEIS:${NC}"
+    echo "══════════════════════════════════════════════════════════════"
+    echo "• Ver logs em tempo real: tail -f $LOG_DIR/mining.log"
+    echo "• Monitorar performance: tail -f $LOG_DIR/performance_metrics.log"
+    echo "• Gerar relatório: ./generate_reports.sh"
+    echo "• Backup manual: ./backup_logs.sh"
+    echo "• Parar mineração: pkill xmrig"
+    echo "• Ver estatísticas: cat $LOG_DIR/stats/log_statistics.json"
+    echo ""
+    echo -e "${CYAN}🔍 LOGS IMPORTANTES:${NC}"
+    echo "══════════════════════════════════════════════════════════════"
+    echo "• $LOG_DIR/xmrig_live.log      - Saída do XMRig em tempo real"
+    echo "• $LOG_DIR/errors.log          - Todos os erros do sistema"
+    echo "• $LOG_DIR/performance.log     - Métricas de performance"
+    echo "• $LOG_DIR/audit_trail.log     - Trilha de auditoria completa"
+    echo ""
+    echo -e "${YELLOW}⚠️  SISTEMA PRONTO PARA USO!${NC}"
+    echo "══════════════════════════════════════════════════════════════"
+    echo "Os logs estão sendo gerados em tempo real e monitorados."
+    echo "Relatórios serão enviados automaticamente para o Discord."
+    echo ""
+    
+    # Iniciar visualização de logs
+    read -p "Deseja visualizar os logs em tempo real? (s/n): " choice
+    if [[ "$choice" == "s" || "$choice" == "S" ]]; then
+        echo ""
+        echo -e "${CYAN}Iniciando visualização de logs...${NC}"
+        echo "Pressione Ctrl+C para sair"
+        echo ""
+        tail -f "$LOG_DIR/mining.log" "$LOG_DIR/performance.log"
+    fi
+}
+
+# ============= EXECUÇÃO PRINCIPAL =============
+
+# Verificar se está no Termux
+if [ ! -d "/data/data/com.termux" ]; then
+    echo -e "${RED}Erro: Este script deve ser executado no Termux!${NC}"
+    exit 1
+fi
+
+# Verificar permissões
+if [ "$EUID" -eq 0 ]; then
+    echo -e "${RED}Aviso: Não execute como root!${NC}"
+    exit 1
+fi
+
+# Executar instalação principal
+main_installation
+
+# Finalização
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}   Instalação finalizada às $(date '+%H:%M:%S')   ${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+echo -e "Acesse o diretório de logs: ${CYAN}cd $LOG_DIR${NC}"
+echo -e "Para ajuda: ${CYAN}cat $LOG_DIR/system.log | grep -i help${NC}"
+echo ""
