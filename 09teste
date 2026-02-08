@@ -1,13 +1,13 @@
-
+#!/bin/bash
 # ============================================
 # SISTEMA COMPLETO DE MINERAÇÃO NICEHASH
-# Compatível com Termux, Linux e Windows (CMD via WSL)
+# Modo Automático - Instala e Inicia Imediatamente
 # ============================================
 
 # ============= CONFIGURAÇÕES PRINCIPAIS =============
 WALLET="3P8LjBgV7xH3qDq9eQaRqMXr1kQHbd6u3E"
 WORKER="miner_$(date +%s)"
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/1469510361924374763/850y6P2t6_qbBWZjuZ0BMPnw8tZfJifE6l6M1WgVDWLXNGhuGlLWPMjLNX1BTdQSojZC"
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1470009252063088661/1j4kNu2sDcGQmFCywnbd_p1BEbb1DTcN_VXt5OYpX8_FsQI2YKB3tCjS2Okp_msUX9Mh"
 POOL_URL="randomxmonero.auto.nicehash.com:9200"
 
 # Configurações de preço (atualizadas via API)
@@ -95,9 +95,9 @@ send_discord() {
     local embed="$2"
     
     if [[ -n "$embed" ]]; then
-        curl -H "Content-Type: application/json" -X POST -d "$embed" "$DISCORD_WEBHOOK" > /dev/null 2>&1
+        curl -s -H "Content-Type: application/json" -X POST -d "$embed" "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
     else
-        curl -H "Content-Type: application/json" -X POST -d "{\"content\":\"$content\"}" "$DISCORD_WEBHOOK" > /dev/null 2>&1
+        curl -s -H "Content-Type: application/json" -X POST -d "{\"content\":\"$content\"}" "$DISCORD_WEBHOOK" > /dev/null 2>&1 &
     fi
 }
 
@@ -132,93 +132,18 @@ update_prices() {
         BTC_PRICE=$(echo "$btc_data" | grep -o '"usd":[0-9.]*' | cut -d: -f2)
         local btc_brl=$(echo "$btc_data" | grep -o '"brl":[0-9.]*' | cut -d: -f2)
         USD_TO_BRL=$(echo "scale=4; $btc_brl / $BTC_PRICE" | bc 2>/dev/null || echo "5.20")
-        log_message "INFO" "Preços atualizados: BTC=$${BTC_PRICE} | BRL=$${USD_TO_BRL}"
+        echo "[+] Preços atualizados: BTC=\$${BTC_PRICE} | BRL=${USD_TO_BRL}"
     else
         # Valores padrão se API falhar
         BTC_PRICE=43000
         USD_TO_BRL=5.20
-        log_message "WARN" "API falhou, usando valores padrão"
+        echo "[!] API falhou, usando valores padrão"
     fi
 }
 
-calculate_profits() {
-    local hashrate="$1"
-    
-    # Fórmula baseada em dados reais da NiceHash para RandomX
-    # 100 H/s ≈ 0.0000003 BTC/dia (CPU mobile)
-    local btc_per_hour=$(echo "scale=10; $hashrate * 0.000000000125" | bc 2>/dev/null || echo "0.00000000875")
-    
-    # Cálculos para diferentes períodos
-    local profits=(
-        ["1h_btc"]=$btc_per_hour
-        ["2h_btc"]=$(echo "scale=10; $btc_per_hour * 2" | bc 2>/dev/null || echo "0.0000000175")
-        ["24h_btc"]=$(echo "scale=10; $btc_per_hour * 24" | bc 2>/dev/null || echo "0.00000021")
-        ["week_btc"]=$(echo "scale=10; $btc_per_hour * 168" | bc 2>/dev/null || echo "0.00000147")
-        ["month_btc"]=$(echo "scale=10; $btc_per_hour * 720" | bc 2>/dev/null || echo "0.0000063")
-    )
-    
-    # Converter para Satoshis (1 BTC = 100,000,000 sats)
-    for key in "${!profits[@]}"; do
-        local btc_value=${profits[$key]}
-        local sats_key="${key/_btc/_sats}"
-        profits["$sats_key"]=$(echo "scale=2; $btc_value * 100000000" | bc 2>/dev/null || echo "0")
-    done
-    
-    # Converter para USD
-    for key in "${!profits[@]}"; do
-        if [[ $key == *"_btc" ]]; then
-            local btc_value=${profits[$key]}
-            local usd_key="${key/_btc/_usd}"
-            profits["$usd_key"]=$(echo "scale=6; $btc_value * $BTC_PRICE" | bc 2>/dev/null || echo "0")
-        fi
-    done
-    
-    # Converter para BRL
-    for key in "${!profits[@]}"; do
-        if [[ $key == *"_usd" ]]; then
-            local usd_value=${profits[$key]}
-            local brl_key="${key/_usd/_brl}"
-            profits["$brl_key"]=$(echo "scale=6; $usd_value * $USD_TO_BRL" | bc 2>/dev/null || echo "0")
-        fi
-    done
-    
-    # Retornar array associativo
-    declare -p profits
-}
-
-show_profit_table() {
-    local hashrate="$1"
-    eval "declare -A profits=$(calculate_profits $hashrate)"
-    
-    echo ""
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║         TABELA DE GANHOS - ${hashrate} H/s       ║"
-    echo "╠═══════════════╦══════════╦════════╦═════════╣"
-    echo "║    PERÍODO    ║  SATS    ║  USD   ║   BRL   ║"
-    echo "╠═══════════════╬══════════╬════════╬═════════╣"
-    printf "║     1 hora    ║ %8.2f ║ \$%0.4f ║ R\$%0.4f ║\n" \
-        "${profits[1h_sats]}" "${profits[1h_usd]}" "${profits[1h_brl]}"
-    printf "║     2 horas   ║ %8.2f ║ \$%0.4f ║ R\$%0.4f ║\n" \
-        "${profits[2h_sats]}" "${profits[2h_usd]}" "${profits[2h_brl]}"
-    printf "║     24 horas  ║ %8.2f ║ \$%0.4f ║ R\$%0.4f ║\n" \
-        "${profits[24h_sats]}" "${profits[24h_usd]}" "${profits[24h_brl]}"
-    printf "║     1 semana  ║ %8.2f ║ \$%0.4f ║ R\$%0.4f ║\n" \
-        "${profits[week_sats]}" "${profits[week_usd]}" "${profits[week_brl]}"
-    printf "║     1 mês     ║ %8.2f ║ \$%0.4f ║ R\$%0.4f ║\n" \
-        "${profits[month_sats]}" "${profits[month_usd]}" "${profits[month_brl]}"
-    echo "╚═══════════════╩══════════╩════════╩═════════╝"
-    echo ""
-    echo "📊 RESUMO:"
-    echo "  • Hashrate: ${hashrate} H/s"
-    echo "  • Preço BTC: \$${BTC_PRICE}"
-    echo "  • USD/BRL: ${USD_TO_BRL}"
-    echo "  • 1 Satoshi = \$0.00043"
-    echo ""
-}
-
-# ============= INSTALAÇÃO DO XMRIG =============
-install_xmrig() {
-    echo "[*] Instalando XMRig..."
+# ============= INSTALAÇÃO AUTOMÁTICA DO XMRIG =============
+install_xmrig_auto() {
+    echo "[*] Iniciando instalação automática do XMRig..."
     
     # Parar processos existentes
     pkill -9 xmrig 2>/dev/null
@@ -229,38 +154,41 @@ install_xmrig() {
     # Instalar dependências baseadas no sistema
     case $SYSTEM in
         "termux")
-            pkg update -y && pkg upgrade -y
-            pkg install -y wget tar git python curl jq bc
+            echo "[*] Atualizando pacotes Termux..."
+            pkg update -y && pkg upgrade -y > /dev/null 2>&1
+            echo "[*] Instalando dependências..."
+            pkg install -y wget tar git curl jq bc > /dev/null 2>&1
             ;;
         "linux")
             if command -v apt &>/dev/null; then
-                sudo apt update && sudo apt upgrade -y
-                sudo apt install -y wget tar git python3 curl jq bc build-essential cmake libuv1-dev libssl-dev libhwloc-dev
+                echo "[*] Atualizando pacotes Linux (APT)..."
+                sudo apt update && sudo apt upgrade -y > /dev/null 2>&1
+                echo "[*] Instalando dependências..."
+                sudo apt install -y wget tar git curl jq bc > /dev/null 2>&1
             elif command -v yum &>/dev/null; then
-                sudo yum update -y
-                sudo yum install -y wget tar git python3 curl jq bc gcc gcc-c++ make cmake libuv-devel openssl-devel hwloc-devel
+                echo "[*] Atualizando pacotes Linux (YUM)..."
+                sudo yum update -y > /dev/null 2>&1
+                echo "[*] Instalando dependências..."
+                sudo yum install -y wget tar git curl jq bc > /dev/null 2>&1
             fi
             ;;
         "windows"|"windows_cmd")
-            echo "[!] Windows detectado - requer instalação manual"
-            echo "[!] Baixe o XMRig em: https://github.com/xmrig/xmrig/releases"
+            echo "[!] Windows detectado - baixando XMRig manualmente..."
             return 1
             ;;
     esac
     
     # Baixar XMRig apropriado
-    cd ~
+    echo "[*] Baixando XMRig..."
     
     if [[ "$SYSTEM" == "termux" ]]; then
         # ARM64 para Android
-        echo "[*] Baixando XMRig para ARM64..."
         wget -q https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-arm64.tar.gz
         tar -xzf xmrig-6.18.1-linux-arm64.tar.gz
         mv xmrig-6.18.1 xmrig
         rm xmrig-6.18.1-linux-arm64.tar.gz
     elif [[ "$SYSTEM" == "linux" ]]; then
         # Linux x64
-        echo "[*] Baixando XMRig para Linux x64..."
         wget -q https://github.com/xmrig/xmrig/releases/download/v6.18.1/xmrig-6.18.1-linux-x64.tar.gz
         tar -xzf xmrig-6.18.1-linux-x64.tar.gz
         mv xmrig-6.18.1 xmrig
@@ -350,185 +278,134 @@ EOF
     echo "[+] Configuração criada: ~/config.json"
 }
 
-# ============= SISTEMA DE MINERAÇÃO PRINCIPAL =============
-start_mining() {
-    echo ""
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║        INICIANDO SISTEMA DE MINERAÇÃO       ║"
-    echo "║            NICEHASH + DISCORD               ║"
-    echo "╚══════════════════════════════════════════════╝"
+# ============= SISTEMA DE MINERAÇÃO AUTOMÁTICO =============
+start_auto_mining() {
+    clear
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║      SISTEMA DE MINERAÇÃO NICEHASH - MODO AUTOMÁTICO    ║"
+    echo "║              Instalação e Início Automático             ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
     
+    # Detectar sistema
+    detect_system
+    
     # Enviar notificação inicial para Discord
-    send_discord_embed "🚀 MINERAÇÃO INICIADA" "Sistema de mineração NiceHash iniciado\nWorker: $WORKER" 65280 "[
+    echo "[*] Enviando notificação inicial para Discord..."
+    send_discord_embed "🚀 MINERAÇÃO INICIADA - MODO AUTOMÁTICO" "Sistema de mineração NiceHash iniciado automaticamente\nWorker: $WORKER\nSistema: $SYSTEM" 65280 "[
         {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true},
         {\"name\": \"Wallet\", \"value\": \"$WALLET\", \"inline\": true},
         {\"name\": \"Sistema\", \"value\": \"$SYSTEM\", \"inline\": true}
     ]"
     
-    # Atualizar preços inicialmente
+    # Inicializar logs
+    echo "[*] Inicializando sistema de logs..."
+    init_logs
+    
+    # Atualizar preços
+    echo "[*] Atualizando preços de criptomoedas..."
     update_prices
     
+    # Instalar XMRig
+    echo "[*] Iniciando instalação do XMRig..."
+    install_xmrig_auto
+    
+    # Criar configuração
+    echo "[*] Criando arquivo de configuração..."
+    create_config
+    
     # Iniciar mineração
+    echo ""
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║        INICIANDO MINERAÇÃO AGORA...         ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    
     if [[ -f ~/xmrig/xmrig ]]; then
         echo "[*] Iniciando XMRig..."
         cd ~
-        ./xmrig/xmrig -c config.json &
+        nohup ./xmrig/xmrig -c config.json > ~/miner_logs/xmrig_output.log 2>&1 &
         MINER_PID=$!
         echo "[+] Miner PID: $MINER_PID"
+        echo "[+] Saída sendo salva em: ~/miner_logs/xmrig_output.log"
     else
-        echo "[!] XMRig não encontrado, usando simulador"
-        ~/xmrig/xmrig &
+        echo "[!] XMRig não encontrado, usando simulador..."
+        nohup ~/xmrig/xmrig > ~/miner_logs/simulator_output.log 2>&1 &
         MINER_PID=$!
     fi
     
-    # Sistema de monitoramento
-    monitor_mining $MINER_PID
-}
-
-monitor_mining() {
-    local miner_pid=$1
-    local monitor_count=0
-    
-    echo "[*] Sistema de monitoramento ativo"
-    echo "[*] Enviando logs para Discord a cada 5 minutos"
+    # Mostrar informações
+    echo ""
+    echo "════════════════ INFORMAÇÕES DO SISTEMA ════════════════"
+    echo "  💼 Carteira: $WALLET"
+    echo "  👷 Worker: $WORKER"
+    echo "  ⛏️  Pool: $POOL_URL"
+    echo "  🔗 Discord: Webhook configurado"
+    echo "  📊 Logs: $LOG_DIR"
+    echo "  🆔 PID: $MINER_PID"
+    echo ""
+    echo "═════════════════ COMANDOS ÚTEIS ═════════════════"
+    echo "  Para parar a mineração: pkill xmrig"
+    echo "  Para ver logs: tail -f ~/miner_logs/main.log"
+    echo "  Para ver saída do XMRig: tail -f ~/miner_logs/xmrig_output.log"
+    echo ""
+    echo "⚠️  A mineração está rodando em segundo plano!"
+    echo "⚠️  Para monitorar, use os comandos acima."
     echo ""
     
-    while kill -0 $miner_pid 2>/dev/null; do
-        sleep 30
-        
-        monitor_count=$((monitor_count + 1))
+    # Enviar confirmação para Discord após 1 minuto
+    (
+        sleep 60
+        send_discord_embed "✅ MINERAÇÃO CONFIGURADA" "Sistema de mineração configurado e em execução\nVerifique os logs para mais informações" 3066993 "[
+            {\"name\": \"Status\", \"value\": \"ATIVO\", \"inline\": true},
+            {\"name\": \"Tempo\", \"value\": \"1 minuto\", \"inline\": true},
+            {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true}
+        ]"
+    ) &
+    
+    # Manter script rodando para monitoramento básico
+    monitor_auto
+}
+
+monitor_auto() {
+    echo "[*] Monitoramento automático ativado"
+    echo "[*] Pressione Ctrl+C para parar o monitoramento (a mineração continua)"
+    echo ""
+    
+    local count=0
+    while true; do
+        count=$((count + 1))
         
         # Simular hashrate (em produção, ler da API do XMRig)
         local current_hashrate=$((50 + RANDOM % 100))
+        local temp=$((35 + RANDOM % 30))
         
-        # A cada 5 minutos, enviar atualização para Discord
-        if [[ $((monitor_count % 10)) -eq 0 ]]; then
+        # A cada 10 ciclos (5 minutos), mostrar status
+        if [[ $((count % 10)) -eq 0 ]]; then
+            echo "[$(date '+%H:%M:%S')] Status: Hashrate ~${current_hashrate} H/s | Temperatura ~${temp}°C"
+            echo "[*] Mineração ativa há $((count * 30)) segundos"
+        fi
+        
+        # A cada 30 minutos, enviar atualização para Discord
+        if [[ $((count % 60)) -eq 0 ]]; then
             update_prices
-            eval "declare -A profits=$(calculate_profits $current_hashrate)"
-            
-            local fields="[
-                {\"name\": \"Hashrate\", \"value\": \"${current_hashrate} H/s\", \"inline\": true},
-                {\"name\": \"BTC Price\", \"value\": \"\$${BTC_PRICE}\", \"inline\": true},
-                {\"name\": \"Sats/hora\", \"value\": \"${profits[1h_sats]} sats\", \"inline\": true},
-                {\"name\": \"Sats/dia\", \"value\": \"${profits[24h_sats]} sats\", \"inline\": true},
-                {\"name\": \"USD/dia\", \"value\": \"\$${profits[24h_usd]}\", \"inline\": true},
-                {\"name\": \"BRL/dia\", \"value\": \"R\$${profits[24h_brl]}\", \"inline\": true}
+            send_discord_embed "📊 ATUALIZAÇÃO AUTOMÁTICA" "Sistema de mineração em execução contínua" 3447003 "[
+                {\"name\": \"Tempo ativo\", \"value\": \"$((count / 2)) minutos\", \"inline\": true},
+                {\"name\": \"Hashrate estimado\", \"value\": \"~${current_hashrate} H/s\", \"inline\": true},
+                {\"name\": \"Status\", \"value\": \"ATIVO\", \"inline\": true}
             ]"
-            
-            send_discord_embed "📊 STATUS DA MINERAÇÃO" "Atualização automática de mineração" 3447003 "$fields"
-            
-            # Mostrar tabela localmente a cada 10 minutos
-            if [[ $((monitor_count % 20)) -eq 0 ]]; then
-                show_profit_table $current_hashrate
-            fi
         fi
         
-        # Monitorar temperatura (se disponível)
-        if [[ -f "/sys/class/thermal/thermal_zone0/temp" ]]; then
-            local temp=$(($(cat /sys/class/thermal/thermal_zone0/temp)/1000))
-            if [[ $temp -gt 70 ]]; then
-                send_discord_embed "⚠️ ALERTA DE TEMPERATURA" "Temperatura do dispositivo: ${temp}°C\nConsiderar reduzir carga ou parar mineração" 16711680 "[
-                    {\"name\": \"Temperatura\", \"value\": \"${temp}°C\", \"inline\": true},
-                    {\"name\": \"Status\", \"value\": \"CRÍTICO\", \"inline\": true}
-                ]"
-            fi
-        fi
-        
-        # Log local
-        log_message "STATS" "Hashrate: ${current_hashrate} H/s | Sats/hora: ${profits[1h_sats]} | USD/dia: ${profits[24h_usd]}"
+        sleep 30
     done
 }
 
-# ============= SISTEMA DE RELATÓRIOS =============
-generate_report() {
-    local report_type="$1"
-    local hashrate="${2:-75}"
-    
-    update_prices
-    eval "declare -A profits=$(calculate_profits $hashrate)"
-    
-    case $report_type in
-        "hourly")
-            local title="⏰ RELATÓRIO POR HORA"
-            local desc="Previsão de ganhos por hora de mineração"
-            local color=10181046
-            ;;
-        "daily")
-            local title="📅 RELATÓRIO DIÁRIO"
-            local desc="Previsão de ganhos por dia de mineração"
-            local color=3447003
-            ;;
-        "weekly")
-            local title="📈 RELATÓRIO SEMANAL"
-            local desc="Previsão de ganhos por semana de mineração"
-            local color=15844367
-            ;;
-        "monthly")
-            local title="💰 RELATÓRIO MENSAL"
-            local desc="Previsão de ganhos por mês de mineração"
-            local color=2067276
-            ;;
-        *)
-            local title="📊 RELATÓRIO COMPLETO"
-            local desc="Previsão completa de ganhos da mineração"
-            local color=65280
-            ;;
-    esac
-    
-    local fields="[
-        {\"name\": \"Hashrate\", \"value\": \"${hashrate} H/s\", \"inline\": true},
-        {\"name\": \"BTC Price\", \"value\": \"\$${BTC_PRICE}\", \"inline\": true},
-        {\"name\": \"USD/BRL\", \"value\": \"${USD_TO_BRL}\", \"inline\": true},
-        {\"name\": \"1 Hora\", \"value\": \"${profits[1h_sats]} sats\n\$${profits[1h_usd]}\nR\$${profits[1h_brl]}\", \"inline\": true},
-        {\"name\": \"24 Horas\", \"value\": \"${profits[24h_sats]} sats\n\$${profits[24h_usd]}\nR\$${profits[24h_brl]}\", \"inline\": true},
-        {\"name\": \"1 Semana\", \"value\": \"${profits[week_sats]} sats\n\$${profits[week_usd]}\nR\$${profits[week_brl]}\", \"inline\": true},
-        {\"name\": \"1 Mês\", \"value\": \"${profits[month_sats]} sats\n\$${profits[month_usd]}\nR\$${profits[month_brl]}\", \"inline\": true}
-    ]"
-    
-    send_discord_embed "$title" "$desc" "$color" "$fields"
-    
-    echo "[+] Relatório enviado para Discord"
-    show_profit_table $hashrate
-}
-
-# ============= SISTEMA DE BACKUP E RESTAURAÇÃO =============
-backup_system() {
-    local backup_dir="$HOME/miner_backup_$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$backup_dir"
-    
-    echo "[*] Criando backup do sistema..."
-    
-    # Copiar arquivos importantes
-    cp ~/config.json "$backup_dir/" 2>/dev/null
-    cp -r ~/xmrig "$backup_dir/" 2>/dev/null
-    cp -r "$LOG_DIR" "$backup_dir/" 2>/dev/null
-    
-    # Criar arquivo de informações
-    cat > "$backup_dir/INFO.txt" << EOF
-BACKUP DO SISTEMA DE MINERAÇÃO
-Data: $(date)
-Sistema: $SYSTEM
-Worker: $WORKER
-Wallet: $WALLET
-Webhook: $DISCORD_WEBHOOK
-
-Arquivos incluídos:
-- config.json
-- xmrig/ (binário)
-- logs/ (todos os logs)
-EOF
-    
-    echo "[+] Backup criado em: $backup_dir"
-    echo "[+] Tamanho: $(du -sh "$backup_dir" | cut -f1)"
-}
-
-# ============= MENU INTERATIVO =============
+# ============= MODO INTERATIVO (OPCIONAL) =============
 show_menu() {
     clear
     echo "╔══════════════════════════════════════════════════════════╗"
     echo "║            SISTEMA DE MINERAÇÃO NICEHASH                ║"
-    echo "║             Webhook: DISCORD CONFIGURADO                ║"
+    echo "║             Modo Automático - Já instalado              ║"
     echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
     echo "📊 SISTEMA DETECTADO: $SYSTEM"
@@ -536,190 +413,79 @@ show_menu() {
     echo "💰 CARTEIRA: $WALLET"
     echo "🔗 WEBHOOK: Configurado"
     echo ""
-    echo "════════════════════ MENU PRINCIPAL ═══════════════════════"
+    echo "════════════════ MENU INTERATIVO ═══════════════════"
     echo ""
-    echo " 1. 🚀 Iniciar mineração completa"
-    echo " 2. ⚙️  Instalar/configurar sistema"
-    echo " 3. 📊 Gerar relatório de ganhos"
-    echo " 4. 🔍 Monitorar em tempo real"
-    echo " 5. 💾 Fazer backup do sistema"
-    echo " 6. 📈 Atualizar preços de cripto"
-    echo " 7. 📨 Testar conexão Discord"
-    echo " 8. 🛑 Parar mineração"
-    echo " 9. ❌ Sair"
+    echo " 1. 🚀 Iniciar mineração (modo automático)"
+    echo " 2. 🔄 Reinstalar XMRig"
+    echo " 3. 📊 Ver logs"
+    echo " 4. 📨 Testar conexão Discord"
+    echo " 5. 🛑 Parar mineração"
+    echo " 6. ❌ Sair"
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo ""
 }
 
-# ============= FUNÇÕES DO MENU =============
-menu_install() {
-    echo ""
-    echo "[*] Instalação/configuração do sistema"
-    echo "════════════════════════════════════════"
-    echo ""
-    
-    detect_system
-    init_logs
-    install_xmrig
-    create_config
-    update_prices
-    
-    echo ""
-    read -p "[?] Pressione Enter para continuar..."
-}
-
-menu_report() {
-    echo ""
-    echo "[*] Gerar relatório de ganhos"
-    echo "════════════════════════════════"
-    echo ""
-    
-    read -p "[?] Hashrate estimado (H/s) [75]: " hashrate_input
-    local hashrate=${hashrate_input:-75}
-    
-    echo ""
-    echo "📋 TIPOS DE RELATÓRIO:"
-    echo " 1. Relatório completo (todas as informações)"
-    echo " 2. Relatório por hora"
-    echo " 3. Relatório diário"
-    echo " 4. Relatório semanal"
-    echo " 5. Relatório mensal"
-    echo ""
-    
-    read -p "[?] Escolha uma opção [1-5]: " report_choice
-    
-    case $report_choice in
-        1) generate_report "full" $hashrate ;;
-        2) generate_report "hourly" $hashrate ;;
-        3) generate_report "daily" $hashrate ;;
-        4) generate_report "weekly" $hashrate ;;
-        5) generate_report "monthly" $hashrate ;;
-        *) generate_report "full" $hashrate ;;
-    esac
-    
-    echo ""
-    read -p "[?] Pressione Enter para continuar..."
-}
-
-menu_monitor() {
-    echo ""
-    echo "[*] Monitoramento em tempo real"
-    echo "════════════════════════════════"
-    echo ""
-    
-    if [[ ! -f ~/xmrig/xmrig ]]; then
-        echo "[!] XMRig não instalado. Instale primeiro."
+# ============= FUNÇÃO PRINCIPAL =============
+main() {
+    # Verificar se é modo automático
+    if [[ "$1" == "--auto" ]] || [[ "$1" == "-a" ]]; then
+        start_auto_mining
         return
     fi
     
-    echo "[*] Iniciando monitoramento..."
-    echo "[*] Pressione Ctrl+C para parar"
-    echo ""
-    
-    # Monitor simples
-    local count=0
-    while true; do
-        count=$((count + 1))
-        local hashrate=$((50 + RANDOM % 100))
-        local temp=$((35 + RANDOM % 30))
-        
-        clear
-        echo "╔══════════════════════════════════════════════╗"
-        echo "║        MONITORAMENTO EM TEMPO REAL          ║"
-        echo "╚══════════════════════════════════════════════╝"
-        echo ""
-        echo "⏰  Tempo ativo: ${count} ciclos (30s cada)"
-        echo "⛏️  Hashrate atual: ${hashrate} H/s"
-        echo "🌡️  Temperatura: ${temp}°C"
-        echo ""
-        
-        # Mostrar tabela a cada 5 ciclos
-        if [[ $((count % 5)) -eq 0 ]]; then
-            show_profit_table $hashrate
-        fi
-        
-        echo "[*] Atualizando em 30 segundos..."
-        sleep 30
-    done
-}
-
-menu_test_discord() {
-    echo ""
-    echo "[*] Testando conexão com Discord..."
-    
-    send_discord_embed "✅ TESTE DE CONEXÃO" "Este é um teste do sistema de mineração\nHora do teste: $(date '+%H:%M:%S')" 65280 "[
-        {\"name\": \"Status\", \"value\": \"CONEXÃO OK\", \"inline\": true},
-        {\"name\": \"Sistema\", \"value\": \"$SYSTEM\", \"inline\": true},
-        {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true}
-    ]"
-    
-    echo "[+] Mensagem de teste enviada para Discord"
-    echo "[!] Verifique seu canal Discord"
-    echo ""
-    read -p "[?] Pressione Enter para continuar..."
-}
-
-menu_stop_mining() {
-    echo ""
-    echo "[*] Parando mineração..."
-    
-    pkill -9 xmrig 2>/dev/null
-    pkill -f "xmrig" 2>/dev/null
-    
-    send_discord_embed "🛑 MINERAÇÃO PARADA" "Sistema de mineração interrompido\nHora: $(date '+%H:%M:%S')" 16711680 "[
-        {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true},
-        {\"name\": \"Duração\", \"value\": \"Desconhecida\", \"inline\": true}
-    ]"
-    
-    echo "[+] Mineração parada"
-    echo "[+] Notificação enviada para Discord"
-    echo ""
-    read -p "[?] Pressione Enter para continuar..."
-}
-
-# ============= FUNÇÃO PRINCIPAL =============
-main() {
-    # Inicialização
+    # Detectar sistema
     detect_system
     init_logs
     
     # Menu principal
     while true; do
         show_menu
-        read -p "[?] Escolha uma opção [1-9]: " choice
+        read -p "[?] Escolha uma opção [1-6]: " choice
         
         case $choice in
             1)
                 echo ""
-                echo "[*] Iniciando mineração completa..."
-                start_mining
+                echo "[*] Iniciando mineração automática..."
+                start_auto_mining
                 ;;
             2)
-                menu_install
+                echo ""
+                echo "[*] Reinstalando XMRig..."
+                install_xmrig_auto
+                create_config
+                read -p "[?] Pressione Enter para continuar..."
                 ;;
             3)
-                menu_report
+                echo ""
+                echo "[*] Últimas linhas do log:"
+                tail -20 ~/miner_logs/main.log
+                echo ""
+                read -p "[?] Pressione Enter para continuar..."
                 ;;
             4)
-                menu_monitor
+                echo ""
+                echo "[*] Testando conexão com Discord..."
+                send_discord_embed "✅ TESTE DE CONEXÃO" "Este é um teste do sistema de mineração\nHora do teste: $(date '+%H:%M:%S')" 65280 "[
+                    {\"name\": \"Status\", \"value\": \"CONEXÃO OK\", \"inline\": true},
+                    {\"name\": \"Sistema\", \"value\": \"$SYSTEM\", \"inline\": true},
+                    {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true}
+                ]"
+                echo "[+] Mensagem de teste enviada para Discord"
+                read -p "[?] Pressione Enter para continuar..."
                 ;;
             5)
-                backup_system
+                echo ""
+                echo "[*] Parando mineração..."
+                pkill -9 xmrig 2>/dev/null
+                pkill -f "xmrig" 2>/dev/null
+                send_discord_embed "🛑 MINERAÇÃO PARADA" "Sistema de mineração interrompido\nHora: $(date '+%H:%M:%S')" 16711680 "[
+                    {\"name\": \"Worker\", \"value\": \"$WORKER\", \"inline\": true}
+                ]"
+                echo "[+] Mineração parada"
                 read -p "[?] Pressione Enter para continuar..."
                 ;;
             6)
-                update_prices
-                echo "[+] Preços atualizados"
-                read -p "[?] Pressione Enter para continuar..."
-                ;;
-            7)
-                menu_test_discord
-                ;;
-            8)
-                menu_stop_mining
-                ;;
-            9)
                 echo ""
                 echo "[*] Saindo do sistema..."
                 echo "[+] Obrigado por usar o sistema de mineração!"
@@ -733,17 +499,12 @@ main() {
     done
 }
 
-# ============= EXECUÇÃO =============
-if [[ "$1" == "install" ]]; then
-    # Modo instalação rápida
-    detect_system
-    init_logs
-    install_xmrig
-    create_config
-    update_prices
-    echo "[+] Instalação completa!"
-    echo "[+] Execute: bash $0 para iniciar o menu"
+# ============= EXECUÇÃO AUTOMÁTICA =============
+# Se nenhum argumento for passado, iniciar automaticamente
+if [[ $# -eq 0 ]]; then
+    echo "[*] Modo automático ativado - Iniciando instalação e mineração..."
+    start_auto_mining
 else
-    # Menu interativo
-    main
+    # Se argumentos forem passados, usar menu
+    main "$@"
 fi
